@@ -383,7 +383,8 @@
 
   // ================= Settings =================
   const S = Object.assign({ look: 'glass', accent: '#0a84ff', side: 'right', voice: true, voiceURI: '', units: 'auto',
-    style: 'standard', theme: 'auto', b3d: true, mode: 'car' }, store.get('settings2', {}));
+    style: 'standard', theme: 'light', b3d: true, mode: 'car' }, store.get('settings2', {}));
+  if (!S.v3) { if (S.theme === 'auto') S.theme = 'light'; S.v3 = true; store.set('settings2', S); } // Explore is light unless you pick Dark
   const save = () => store.set('settings2', S);
   const ACCENTS = ['#0a84ff', '#ff5722', '#30d158', '#5e5ce6', '#bf5af2', '#ff375f', '#ff9f0a', '#64d2ff'];
   const darkMQ = matchMedia('(prefers-color-scheme: dark)');
@@ -515,9 +516,9 @@
       const tf = l.layout['text-font'];
       if (Array.isArray(tf) && tf.every(f => typeof f === 'string')) l.layout['text-font'] = tf.map(f => f.replace('Italic', 'Regular'));
     });
-    style.sources.esri = { type: 'raster', tileSize: 256, maxzoom: 18, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
+    style.sources.esri = { type: 'raster', tileSize: 128, maxzoom: 19, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
       tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'] };
-    const sat = { id: 'sat', type: 'raster', source: 'esri', layout: { visibility: S.style === 'standard' ? 'none' : 'visible' }, paint: { 'raster-fade-duration': 150 } };
+    const sat = { id: 'sat', type: 'raster', source: 'esri', layout: { visibility: S.style === 'standard' ? 'none' : 'visible' }, paint: { 'raster-fade-duration': 0, 'raster-resampling': 'linear' } };
     style.layers.splice(1, 0, sat);
     return style;
   }
@@ -557,7 +558,9 @@
     $('splashMsg').textContent = '';
     map = new maplibregl.Map({
       container: 'map', style: patchStyle(style), center: view.c, zoom: view.z, bearing: view.b || 0,
-      attributionControl: { compact: true }, maxPitch: 70, renderWorldCopies: false, fadeDuration: 150,
+      attributionControl: { compact: true }, maxPitch: 70, renderWorldCopies: false, fadeDuration: 0,
+      // Drawing at 3x on Pro iPhones costs a lot of speed for detail you can't see; 2x stays sharp
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2), maxTileCacheSize: 600, refreshExpiredTiles: false, cancelPendingTileRequestsWhileZooming: true,
       dragRotate: true, touchPitch: true, pitchWithRotate: true
     });
     map.touchZoomRotate.enableRotation();
@@ -1222,7 +1225,7 @@
   renderHome();
   initMap();
   loadVoices();
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>
 </body>
