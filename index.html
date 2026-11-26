@@ -13,7 +13,12 @@
 <link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin>
 <link rel="preconnect" href="https://photon.komoot.io" crossorigin>
 <link rel="preconnect" href="https://routing.openstreetmap.de" crossorigin>
-<script>window.__style = fetch('https://tiles.openfreemap.org/styles/liberty').then(r => r.ok ? r.json() : null).catch(() => null);</script>
+<link rel="preload" as="script" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.6.0/maplibre-gl.js" crossorigin="anonymous">
+<script>
+  // Start downloading the map style and tile list right away, in parallel with the map program
+  window.__style = fetch('https://tiles.openfreemap.org/styles/liberty').then(r => r.ok ? r.json() : null).catch(() => null);
+  fetch('https://tiles.openfreemap.org/backup_planet').catch(() => {});
+</script>
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.6.0/maplibre-gl.css">
@@ -199,6 +204,9 @@
   #splash .name { font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
   #splash .msg { color: var(--fg2); font-size: 15px; min-height: 20px; }
   #splash.gone { opacity: 0; visibility: hidden; }
+  /* Picture of the map from last time, shown instantly while the live map loads */
+  #snap { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 5; pointer-events: none; transition: opacity .35s ease, visibility .35s; }
+  #snap.gone { opacity: 0; visibility: hidden; }
   @keyframes breathe { 50% { transform: scale(1.05); } }
   /* Keeps the clock and battery readable over the map */
   #scrim { position: fixed; z-index: 15; left: 0; right: 0; top: 0; height: calc(var(--top) + 18px); pointer-events: none;
@@ -229,7 +237,11 @@
 </head>
 <body class="glass">
 <div id="map"></div>
+<img id="snap" alt="" class="gone">
 <div id="splash"><img src="apple-touch-icon.png" alt=""><div class="name">Fire Maps</div><div class="msg" id="splashMsg"></div></div>
+<script>
+  try { const d = localStorage.getItem('snap2'); if (d) { const s = document.getElementById('snap'); s.src = d; s.classList.remove('gone'); document.getElementById('splash').classList.add('gone'); } } catch {}
+</script>
 
 <div id="controls">
   <div class="pill mat">
@@ -365,7 +377,7 @@
 
 <div id="toast"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.6.0/maplibre-gl.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.6.0/maplibre-gl.js" crossorigin="anonymous"></script>
 <script>
 (() => {
   'use strict';
@@ -517,9 +529,10 @@
     });
     // Soft, even lighting so building walls stay light instead of showing as dark patches
     style.light = { anchor: 'viewport', color: '#ffffff', intensity: 0.12, position: [1.15, 210, 30] };
-    style.sources.esri = { type: 'raster', tileSize: 128, maxzoom: 19, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
+    style.sources.esri = { type: 'raster', tileSize: (window.devicePixelRatio || 1) > 2.2 ? 64 : 128, maxzoom: 19, // one image pixel per screen pixel, so photos aren't stretched attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
       tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'] };
-    const sat = { id: 'sat', type: 'raster', source: 'esri', layout: { visibility: S.style === 'standard' ? 'none' : 'visible' }, paint: { 'raster-fade-duration': 0, 'raster-resampling': 'linear' } };
+    const satVis = S.style === 'standard' ? 'none' : 'visible';
+    const sat = { id: 'sat', type: 'raster', source: 'esri', layout: { visibility: satVis }, paint: { 'raster-fade-duration': 0, 'raster-resampling': 'linear' } };
     style.layers.splice(1, 0, sat);
     return style;
   }
@@ -561,15 +574,35 @@
       container: 'map', style: patchStyle(style), center: view.c, zoom: view.z, bearing: view.b || 0,
       attributionControl: { compact: true }, maxPitch: 70, renderWorldCopies: false, fadeDuration: 0,
       // Drawing at 3x on Pro iPhones costs a lot of speed for detail you can't see; 2x stays sharp
-      pixelRatio: Math.min(window.devicePixelRatio || 1, 2), maxTileCacheSize: 600, refreshExpiredTiles: false, cancelPendingTileRequestsWhileZooming: true,
+      pixelRatio: window.devicePixelRatio || 1, maxTileCacheSize: 800, refreshExpiredTiles: false, cancelPendingTileRequestsWhileZooming: true,
       dragRotate: true, touchPitch: true, pitchWithRotate: true
     });
     map.touchZoomRotate.enableRotation();
     map.on('load', onMapLoad);
-    map.once('idle', hideSplash);
-    setTimeout(hideSplash, 6000);
+    // Show the map as soon as it has drawn, instead of waiting for every piece to arrive.
+    // If last time's picture is showing, keep it until the live map has fully drawn, so there's no flash.
+    map.once('load', hideSplash);
+    const hideSnap = () => $('snap').classList.add('gone');
+    map.once('idle', hideSnap);
+    setTimeout(hideSplash, 4000); setTimeout(hideSnap, 5000);
+    let snapTimer;
+    map.on('idle', () => { clearTimeout(snapTimer); snapTimer = setTimeout(saveSnapshot, 700); });
   }
   function routeColor() { return S.accent; }
+  // Save a small picture of the map at rest, for an instant start next time
+  function saveSnapshot() {
+    if (!map || nav || document.hidden) return;
+    map.once('render', () => {
+      try {
+        const cv = map.getCanvas(), k = Math.min(window.devicePixelRatio || 1, 2), w = Math.round(cv.clientWidth * k), h = Math.round(cv.clientHeight * k);
+        if (!w || !h) return;
+        const t = document.createElement('canvas'); t.width = w; t.height = h;
+        t.getContext('2d').drawImage(cv, 0, 0, w, h);
+        localStorage.setItem('snap2', t.toDataURL('image/jpeg', 0.8));
+      } catch {}
+    });
+    map.triggerRepaint();
+  }
   function onMapLoad() {
     const firstSymbol = map.getStyle().layers.find(l => l.type === 'symbol')?.id;
     map.addSource('fm-routes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -1041,17 +1074,33 @@
   let voices = [];
   function loadVoices() {
     if (!('speechSynthesis' in window)) { $('voiceSel').innerHTML = '<option>Voice isn’t supported here</option>'; return; }
-    voices = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
+    const lang = (navigator.language || 'en-US').toLowerCase();
+    const score = v => (/siri/i.test(v.name) ? 8 : 0) + (/enhanced|premium|natural/i.test(v.name) ? 6 : 0) + (/samantha|ava|allison|karen|daniel|serena/i.test(v.name) ? 3 : 0)
+      + (v.lang.toLowerCase().replace('_', '-') === lang ? 2 : 0) + (v.localService ? 1 : 0);
+    voices = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang)).sort((a, b) => score(b) - score(a));
     $('voiceSel').innerHTML = '<option value="">Default voice</option>' + voices.map(v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === S.voiceURI ? 'selected' : ''}>${esc(v.name)}</option>`).join('');
   }
   if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = loadVoices;
   $('voiceSel').onchange = e => { S.voiceURI = e.target.value; save(); };
+  const speaking = []; // keeps utterances alive until they finish (Safari can drop them otherwise)
+  let speakTimer = null;
   function speak(text, force) {
     if ((!S.voice && !force) || !('speechSynthesis' in window) || !text) return;
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text), v = voices.find(v => v.voiceURI === S.voiceURI);
-    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-US';
-    speechSynthesis.speak(u);
+    const ss = window.speechSynthesis;
+    if (!voices.length) loadVoices();
+    const go = () => {
+      const u = new SpeechSynthesisUtterance(text);
+      const v = voices.find(v => v.voiceURI === S.voiceURI) || voices[0];
+      if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-US';
+      u.rate = 1; u.pitch = 1; u.volume = 1;
+      speaking.push(u);
+      u.onend = u.onerror = () => { const i = speaking.indexOf(u); if (i >= 0) speaking.splice(i, 1); };
+      try { ss.resume(); } catch {}
+      ss.speak(u);
+    };
+    clearTimeout(speakTimer);
+    // iPhone Safari silently drops speech started right after cancel(), so wait a moment
+    if (ss.speaking || ss.pending) { ss.cancel(); speakTimer = setTimeout(go, 150); } else go();
   }
   $('testVoice').onclick = () => speak('In 500 feet, turn right onto Main Street.', true);
   $('muteBtn').onclick = () => { S.voice = !S.voice; save(); applyUI(); if (!S.voice) window.speechSynthesis?.cancel(); };

@@ -1,5 +1,5 @@
 // Fire Maps service worker: opens fast and keeps map pieces you've already seen on your phone.
-const APP = 'firemaps-app-v8';
+const APP = 'firemaps-app-v10';
 const LIBS = 'firemaps-libs-v1';   // map library (versioned URLs, never change)
 const MAPS = 'firemaps-maps-v1';   // map tiles, fonts, icons and satellite images
 const MAX_MAP_ITEMS = 4000;
