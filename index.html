@@ -631,7 +631,11 @@
   const prettyCat = v => (!v || v === 'yes') ? '' : v.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
 
   // ================= Home: favorites, recents, search =================
-  let favs = store.get('favorites2', []);
+  let favs = store.get('favorites2', null);
+  if (!favs) { // bring over favorites saved by the earlier version of the app
+    favs = store.get('favorites', []).filter(f => typeof f.lat === 'number').map(f => ({ name: f.name, lng: f.lng, lat: f.lat, key: '', value: '', cat: '', sub: '', address: f.sub || '' }));
+    store.set('favorites2', favs);
+  }
   let recents = store.get('recents2', []);
   const saveFavs = () => store.set('favorites2', favs);
   function addRecent(p) {
