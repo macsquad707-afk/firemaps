@@ -2,597 +2,968 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-<title>My Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Fire Maps</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Map">
-<meta name="theme-color" content="#1f7a5c">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Fire Maps">
+<meta name="theme-color" content="#f3f1ec">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.json">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.6.0/maplibre-gl.css">
 <style>
   :root {
-    --accent: #1f7a5c; --bg: #ffffff; --fg: #1b1f1d; --muted: #66706b;
-    --line: rgba(0,0,0,.1); --shadow: 0 6px 22px rgba(0,0,0,.2);
-    --glass-tint: rgba(255,255,255,.42); --glass-panel: rgba(255,255,255,.62);
-    --glass-edge: rgba(255,255,255,.7); --glass-shine: rgba(255,255,255,.55);
-    --fab: 52px; --top: env(safe-area-inset-top); --bottom: env(safe-area-inset-bottom);
+    --accent: #0a84ff; --go: #30d158; --red: #ff3b30;
+    --bg: #ffffff; --fg: #000000; --fg2: rgba(60,60,67,.62); --fill: rgba(118,118,128,.12); --fill2: rgba(118,118,128,.2);
+    --sep: rgba(60,60,67,.18); --card: #f2f2f7;
+    --mat: rgba(246,246,248,.78); --mat-solid: #f9f9fb; --mat-edge: rgba(255,255,255,.6);
+    --shadow: 0 2px 14px rgba(0,0,0,.16);
+    --top: env(safe-area-inset-top, 0px); --bottom: env(safe-area-inset-bottom, 0px);
+    color-scheme: light;
   }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #1d2120; --fg: #eef2f0; --muted: #a2ada8; --line: rgba(255,255,255,.12); --shadow: 0 6px 22px rgba(0,0,0,.5);
-      --glass-tint: rgba(40,44,42,.38); --glass-panel: rgba(32,36,34,.6); --glass-edge: rgba(255,255,255,.22); --glass-shine: rgba(255,255,255,.18); }
+  :root[data-theme="dark"] {
+    --bg: #1c1c1e; --fg: #ffffff; --fg2: rgba(235,235,245,.6); --fill: rgba(118,118,128,.24); --fill2: rgba(118,118,128,.36);
+    --sep: rgba(84,84,88,.6); --card: #2c2c2e;
+    --mat: rgba(30,30,32,.8); --mat-solid: #1f1f21; --mat-edge: rgba(255,255,255,.1);
+    --shadow: 0 2px 14px rgba(0,0,0,.5);
+    color-scheme: dark;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
-    font: 16px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; overflow: hidden; }
-  button { font: inherit; cursor: pointer; }
-  #map { position: fixed; inset: 0; background: #dde3e0; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+    font: 17px/1.3 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  input, select { -webkit-user-select: text; user-select: text; }
+  button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; padding: 0; }
+  #map { position: fixed; inset: 0; }
+  [hidden] { display: none !important; }
 
-  /* ---------- Surfaces: solid vs liquid glass ---------- */
-  .surface { background: var(--bg); box-shadow: var(--shadow); }
-  body.glass .surface {
-    background: linear-gradient(140deg, var(--glass-shine), transparent 48%), var(--glass-panel);
-    -webkit-backdrop-filter: blur(22px) saturate(190%); backdrop-filter: blur(22px) saturate(190%);
-    border: 1px solid var(--glass-edge);
-    box-shadow: 0 10px 30px rgba(0,0,0,.22), inset 0 1px 1px var(--glass-shine), inset 0 -1px 1px rgba(255,255,255,.08);
-  }
-  body.glass .fab.surface { background: linear-gradient(150deg, var(--glass-shine), transparent 55%), var(--glass-tint); }
+  /* Materials. Blur is only used on small or mostly-still surfaces to keep scrolling smooth. */
+  .mat { background: var(--mat-solid); box-shadow: var(--shadow); }
+  body.glass .mat { background: var(--mat); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%);
+    border: .5px solid var(--mat-edge); }
 
-  /* ---------- Search ---------- */
-  #searchWrap { position: fixed; z-index: 1000; left: 12px; right: 12px; top: calc(var(--top) + 10px); }
-  #searchForm { display: flex; border-radius: 16px; overflow: hidden; }
-  #q { flex: 1; border: 0; padding: 13px 14px; font-size: 17px; background: transparent; color: var(--fg); outline: none; min-width: 0; }
-  #q::placeholder { color: var(--muted); }
-  #q::-webkit-search-cancel-button, #q::-webkit-search-decoration { -webkit-appearance: none; display: none; }
-  #searchForm button { border: 0; background: transparent; color: var(--muted); font-size: 20px; padding: 0 14px; }
-  #results { margin-top: 6px; border-radius: 16px; max-height: 50vh; overflow-y: auto; display: none; }
-  #results.show { display: block; }
-  .row { padding: 12px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
-  .row:last-child { border-bottom: 0; }
-  .row b { display: block; font-weight: 600; }
-  .row small { color: var(--muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* ---------- Map controls (top right, Apple style) ---------- */
+  #controls { position: fixed; z-index: 10; top: calc(var(--top) + 10px); right: 10px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  body.left #controls { right: auto; left: 10px; }
+  .pill { width: 46px; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+  .pill button { width: 46px; height: 46px; display: grid; place-items: center; color: var(--accent); }
+  .pill button + button { border-top: .5px solid var(--sep); }
+  .pill svg { width: 22px; height: 22px; }
+  #compass { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; }
+  #compass svg { width: 30px; height: 30px; transition: transform .1s linear; }
+  #locBtn.active { color: var(--accent); }
 
-  /* ---------- Round buttons ---------- */
-  #fabs { position: fixed; z-index: 1000; right: 12px; bottom: calc(var(--bottom) + 24px); display: flex; flex-direction: column; gap: 10px; }
-  body.left #fabs { right: auto; left: 12px; }
-  .fab { width: var(--fab); height: var(--fab); border-radius: 50%; border: 0; color: var(--accent);
-    display: grid; place-items: center; transition: transform .15s ease; }
-  .fab:active { transform: scale(.9); }
-  .fab svg { width: calc(var(--fab) * .46); height: calc(var(--fab) * .46); }
-  .fab.on { color: #fff; background: var(--accent) !important; }
-  body.glass .fab.on { background: linear-gradient(150deg, rgba(255,255,255,.45), transparent 55%), color-mix(in srgb, var(--accent) 78%, transparent) !important; }
+  /* ---------- Bottom sheet ---------- */
+  #sheet { position: fixed; z-index: 20; left: 0; right: 0; bottom: 0; height: calc(92vh - var(--top));
+    border-radius: 14px 14px 0 0; display: flex; flex-direction: column; will-change: transform;
+    transition: transform .32s cubic-bezier(.2,.8,.2,1); touch-action: none; }
+  #sheet.dragging { transition: none; }
+  @media (min-width: 700px) { #sheet { left: 10px; right: auto; width: 380px; } body.left #sheet { left: auto; right: 10px; } }
+  .grabber { flex: none; height: 20px; display: grid; place-items: center; cursor: grab; }
+  .grabber::after { content: ""; width: 36px; height: 5px; border-radius: 3px; background: var(--fill2); }
+  .panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 16px calc(var(--bottom) + 24px); touch-action: pan-y; }
+  .head { display: flex; align-items: flex-start; gap: 10px; padding: 0 16px 10px; }
+  .head h1 { margin: 0; font-size: 26px; font-weight: 700; line-height: 1.15; flex: 1; min-width: 0; -webkit-user-select: text; user-select: text; }
+  .head .sub { color: var(--fg2); font-size: 15px; margin-top: 3px; }
+  .closeX { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--fill); color: var(--fg2); display: grid; place-items: center; font-size: 15px; font-weight: 700; }
+  .section { font-size: 20px; font-weight: 700; margin: 18px 0 8px; }
+  .muted { color: var(--fg2); font-size: 15px; }
 
-  /* ---------- Bottom bars ---------- */
-  .bottomBar { position: fixed; z-index: 1000; left: 12px; right: calc(var(--fab) + 24px); bottom: calc(var(--bottom) + 24px);
-    border-radius: 18px; padding: 10px 12px; display: none; }
-  body.left .bottomBar { left: calc(var(--fab) + 24px); right: 12px; }
-  .bottomBar.show { display: block; }
-  .bottomBar .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  .big { font-weight: 700; font-size: 18px; }
-  .sub { color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .seg { display: flex; gap: 6px; margin-top: 8px; }
-  .seg button { flex: 1; border: 1px solid var(--line); background: transparent; color: var(--fg); border-radius: 10px; padding: 7px 0; font-size: 14px; }
-  .seg button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .primary { border: 0; background: var(--accent); color: #fff; border-radius: 12px; padding: 10px 16px; font-weight: 600; font-size: 16px; }
-  .primary:disabled { opacity: .45; }
-  .danger { background: #d93a3a; }
-  .x { border: 0; background: transparent; color: var(--muted); font-size: 22px; padding: 0 4px; }
-  .iconBtn { border: 0; background: var(--line); color: var(--fg); border-radius: 12px; width: 44px; height: 42px; font-size: 19px; }
+  /* Search row */
+  .searchRow { display: flex; align-items: center; gap: 10px; padding: 0 16px 12px; }
+  .search { flex: 1; display: flex; align-items: center; gap: 6px; height: 38px; border-radius: 10px; background: var(--fill); padding: 0 10px; color: var(--fg2); min-width: 0; }
+  .search svg { width: 17px; height: 17px; flex: none; }
+  #q { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 17px; color: var(--fg); }
+  #q::placeholder { color: var(--fg2); }
+  #q::-webkit-search-cancel-button { display: none; }
+  #qClear { width: 18px; height: 18px; border-radius: 50%; background: var(--fg2); color: var(--bg); font-size: 11px; font-weight: 800; display: grid; place-items: center; }
+  #cancelBtn { color: var(--accent); font-size: 17px; }
+  #setBtn { width: 38px; height: 38px; border-radius: 50%; background: var(--fill); display: grid; place-items: center; color: var(--fg2); flex: none; }
+  #setBtn svg { width: 21px; height: 21px; }
 
-  /* ---------- Navigation banner ---------- */
-  #navBanner { position: fixed; z-index: 1000; left: 12px; right: 12px; top: calc(var(--top) + 10px);
-    border-radius: 20px; padding: 12px 14px; display: none; gap: 12px; align-items: center; }
-  #navBanner.show { display: flex; }
-  #navArrow { flex: none; width: 54px; height: 54px; border-radius: 14px; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 26px; }
-  #navArrow svg { width: 34px; height: 34px; transition: transform .2s; }
-  #navDist { font-size: 26px; font-weight: 700; line-height: 1.1; }
-  #navText { font-size: 17px; font-weight: 600; }
-  #navThen { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  /* Lists */
+  .group { background: var(--card); border-radius: 12px; overflow: hidden; }
+  .item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; cursor: pointer; min-height: 56px; }
+  .item + .item { border-top: .5px solid var(--sep); }
+  .item:active { background: var(--fill); }
+  .item .txt { flex: 1; min-width: 0; }
+  .item b { display: block; font-weight: 600; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item small { display: block; color: var(--fg2); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ico { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; color: #fff; }
+  .ico svg { width: 18px; height: 18px; }
+  .favRow { display: flex; gap: 14px; overflow-x: auto; padding: 4px 2px 6px; scrollbar-width: none; touch-action: pan-x; }
+  .favRow::-webkit-scrollbar { display: none; }
+  .fav { flex: none; width: 66px; text-align: center; font-size: 13px; }
+  .fav .ico { width: 56px; height: 56px; margin: 0 auto 6px; }
+  .fav .ico svg { width: 24px; height: 24px; }
+  .fav span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fav small { color: var(--fg2); }
 
-  /* ---------- Sheets ---------- */
-  .sheet { position: fixed; z-index: 1100; left: 0; right: 0; bottom: 0; max-height: 78vh;
-    border-radius: 22px 22px 0 0; transform: translateY(110%); transition: transform .28s ease;
-    display: flex; flex-direction: column; padding-bottom: var(--bottom); }
-  body.glass .sheet { border-bottom: 0; }
-  .sheet.show { transform: none; }
-  .sheet header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 8px; }
-  .sheet h2 { margin: 0; font-size: 20px; }
-  .sheetBody { overflow-y: auto; padding: 0 16px 18px; }
-  .fav { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
-  .fav .row { flex: 1; min-width: 0; border: 0; padding-left: 0; }
-  .fav button { border: 0; background: transparent; color: var(--muted); padding: 12px 8px; font-size: 15px; }
-  .empty { color: var(--muted); padding: 8px 0 24px; }
-  .label { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 18px 0 6px; }
-  .label:first-child { margin-top: 4px; }
-  .hint { color: var(--muted); font-size: 13px; margin-top: 6px; }
-  .hint a { color: var(--accent); }
-  .swatches { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  .sw { width: 34px; height: 34px; border-radius: 50%; border: 3px solid transparent; box-shadow: 0 0 0 1px var(--line); }
-  .sw.on { border-color: var(--bg); box-shadow: 0 0 0 2px var(--fg); }
-  #customColor { width: 38px; height: 38px; border: 0; padding: 0; background: none; }
-  .switchRow { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; gap: 12px; }
-  .switch { position: relative; width: 51px; height: 31px; flex: none; }
-  .switch input { opacity: 0; width: 0; height: 0; }
-  .switch span { position: absolute; inset: 0; border-radius: 31px; background: var(--line); transition: .2s; }
-  .switch span::after { content: ""; position: absolute; left: 2px; top: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: .2s; }
-  .switch input:checked + span { background: var(--accent); }
-  .switch input:checked + span::after { transform: translateX(20px); }
-  .field { width: 100%; padding: 11px 12px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--fg); font-size: 16px; }
-  select.field { -webkit-appearance: none; appearance: none; }
-  .styles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-  .styleOpt { border: 2px solid transparent; background: none; padding: 0; color: var(--fg); font-size: 13px; border-radius: 14px; }
-  .styleOpt img, .styleOpt .ph { display: block; width: 100%; aspect-ratio: 1; border-radius: 12px; object-fit: cover; background: var(--line); }
+  /* Buttons */
+  .actions { display: flex; gap: 8px; padding: 0 16px 6px; }
+  .btn { flex: 1; height: 50px; border-radius: 12px; background: var(--fill); color: var(--accent); font-size: 15px; font-weight: 600;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+  .btn svg { width: 20px; height: 20px; }
+  .btn.primary { background: var(--accent); color: #fff; flex: 1.4; }
+  .btn:active { opacity: .7; }
+  .info { margin-top: 14px; }
+  .info .row { padding: 11px 12px; }
+  .info .row + .row { border-top: .5px solid var(--sep); }
+  .info .k { font-size: 13px; color: var(--fg2); }
+  .info .v { font-size: 16px; -webkit-user-select: text; user-select: text; }
+
+  /* Segmented control */
+  .seg { display: flex; background: var(--fill); border-radius: 9px; padding: 2px; gap: 2px; }
+  .seg button { flex: 1; height: 32px; border-radius: 7px; font-size: 14px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .seg button.on { background: var(--bg); box-shadow: 0 2px 6px rgba(0,0,0,.12); font-weight: 600; }
+  :root[data-theme="dark"] .seg button.on { background: #636366; }
+  .seg svg { width: 18px; height: 18px; }
+
+  /* Route options */
+  .fromTo { background: var(--card); border-radius: 12px; margin-bottom: 12px; }
+  .fromTo .row { display: flex; gap: 12px; align-items: center; padding: 11px 12px; font-size: 16px; }
+  .fromTo .row + .row { border-top: .5px solid var(--sep); }
+  .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+  .routeOpt { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 12px; background: var(--card); margin-top: 10px; border: 2px solid transparent; cursor: pointer; }
+  .routeOpt.on { border-color: var(--accent); }
+  .routeOpt .t { font-size: 26px; font-weight: 700; }
+  .routeOpt .d { color: var(--fg2); font-size: 15px; }
+  .goBtn { margin-left: auto; height: 50px; min-width: 84px; padding: 0 18px; border-radius: 12px; background: var(--go); color: #fff; font-size: 20px; font-weight: 700; }
+
+  /* Map style cards */
+  .styles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .styleOpt { border-radius: 12px; overflow: hidden; border: 3px solid transparent; background: var(--card); font-size: 14px; font-weight: 600; padding-bottom: 8px; }
   .styleOpt.on { border-color: var(--accent); }
-  .styleOpt div { padding: 4px 0 2px; }
+  .styleOpt .pv { aspect-ratio: 1.2; width: 100%; background-size: cover; background-position: center; margin-bottom: 6px; }
+  .pv-std { background: linear-gradient(115deg, transparent 46%, #fff 46% 52%, transparent 52%), linear-gradient(20deg, transparent 60%, #fbd16e 60% 66%, transparent 66%), radial-gradient(circle at 25% 70%, #cfe9c3 0 22%, transparent 23%), linear-gradient(#a5d5f6 0 18%, #f3f1ec 18%); }
+  .setRow { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px; min-height: 48px; }
+  .setRow + .setRow { border-top: .5px solid var(--sep); }
+  .switch { position: relative; width: 51px; height: 31px; flex: none; }
+  .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; border-radius: 31px; background: var(--fill2); transition: .2s; }
+  .switch span::after { content: ""; position: absolute; left: 2px; top: 2px; width: 27px; height: 27px; border-radius: 50%; background: #fff; box-shadow: 0 2px 4px rgba(0,0,0,.25); transition: .2s; }
+  .switch input:checked + span { background: var(--go); }
+  .switch input:checked + span::after { transform: translateX(20px); }
+  .swatches { display: flex; gap: 12px; flex-wrap: wrap; padding: 12px; }
+  .sw { width: 32px; height: 32px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.1); }
+  .sw.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--fg); }
+  select.field { width: 100%; border: 0; background: transparent; color: var(--fg); font-size: 16px; padding: 12px; -webkit-appearance: none; appearance: none; }
+  .label { font-size: 13px; text-transform: uppercase; color: var(--fg2); margin: 22px 12px 6px; letter-spacing: .02em; }
+  .label:first-child { margin-top: 4px; }
+  .linkBtn { color: var(--accent); font-size: 16px; padding: 12px; width: 100%; text-align: left; }
 
-  /* ---------- Popups & toast ---------- */
-  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--bg); color: var(--fg); }
-  body.glass .leaflet-popup-content-wrapper { background: var(--glass-panel); -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%); border: 1px solid var(--glass-edge); }
-  body.glass .leaflet-popup-tip { background: var(--glass-panel); }
-  .leaflet-popup-content { margin: 12px 14px; font-size: 15px; min-width: 190px; }
-  .pop-title { font-weight: 600; margin-bottom: 2px; }
-  .pop-sub { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
-  .pop-btns { display: flex; gap: 6px; }
-  .pop-btns button { flex: 1; border: 0; border-radius: 10px; padding: 8px 10px; font-size: 14px; background: var(--accent); color: #fff; white-space: nowrap; }
-  .pop-btns button.alt { background: var(--line); color: var(--fg); }
-  #toast { position: fixed; z-index: 1200; left: 50%; top: calc(var(--top) + 80px); transform: translateX(-50%);
-    background: rgba(20,20,20,.85); color: #fff; padding: 9px 14px; border-radius: 12px; font-size: 14px;
-    opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; text-align: center; }
+  /* ---------- Navigation ---------- */
+  #navBanner { position: fixed; z-index: 30; left: 8px; right: 8px; top: calc(var(--top) + 6px); border-radius: 16px; padding: 14px 16px;
+    background: rgba(28,28,30,.94); color: #fff; display: flex; gap: 14px; align-items: center; box-shadow: 0 4px 20px rgba(0,0,0,.35); }
+  body.glass #navBanner { background: rgba(28,28,30,.82); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+  #navArrow { flex: none; width: 52px; height: 52px; display: grid; place-items: center; font-size: 30px; }
+  #navArrow svg { width: 46px; height: 46px; }
+  #navDist { font-size: 32px; font-weight: 700; line-height: 1; letter-spacing: -.01em; }
+  #navText { font-size: 20px; font-weight: 600; margin-top: 4px; line-height: 1.2; }
+  #navThen { position: fixed; z-index: 30; left: 8px; top: calc(var(--top) + 6px); transform: translateY(var(--bannerH, 100px)); margin-top: 6px;
+    background: rgba(28,28,30,.9); color: #fff; border-radius: 12px; padding: 8px 12px; font-size: 15px; font-weight: 600; max-width: calc(100vw - 16px);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #navBar { position: fixed; z-index: 30; left: 0; right: 0; bottom: 0; border-radius: 14px 14px 0 0; padding: 14px 16px calc(var(--bottom) + 14px);
+    display: flex; align-items: center; gap: 12px; }
+  .navStat { text-align: center; flex: 1; }
+  .navStat b { display: block; font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .navStat small { color: var(--fg2); font-size: 13px; }
+  #navBar .round { width: 46px; height: 46px; border-radius: 50%; background: var(--fill); font-size: 20px; display: grid; place-items: center; flex: none; }
+  #endBtn { height: 46px; padding: 0 20px; border-radius: 23px; background: var(--red); color: #fff; font-weight: 700; flex: none; }
+  #recenter { position: fixed; z-index: 30; left: 50%; transform: translateX(-50%); bottom: calc(var(--bottom) + 96px); padding: 10px 18px; border-radius: 22px;
+    font-weight: 600; color: var(--accent); }
+
+  /* ---------- Markers ---------- */
+  .me { width: 22px; height: 22px; position: relative; }
+  .me .halo { position: absolute; inset: -14px; border-radius: 50%; background: rgba(10,132,255,.18); animation: pulse 2.4s ease-out infinite; }
+  .me .beam { position: absolute; left: -29px; top: -60px; width: 80px; height: 80px; display: none;
+    background: radial-gradient(circle at 50% 100%, rgba(10,132,255,.5), rgba(10,132,255,0) 72%); clip-path: polygon(50% 100%, 18% 0, 82% 0); }
+  .me .core { position: absolute; inset: 0; border-radius: 50%; background: #0a84ff; border: 3px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,.35); }
+  @keyframes pulse { 0% { transform: scale(.6); opacity: 1 } 100% { transform: scale(1.4); opacity: 0 } }
+  @media (prefers-reduced-motion: reduce) { .me .halo { animation: none; } }
+  .pin { width: 34px; height: 46px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+  .favPin { width: 30px; height: 30px; border-radius: 50%; background: #ff9f0a; border: 2.5px solid #fff; color: #fff; display: grid; place-items: center; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+  .favPin svg { width: 15px; height: 15px; }
+
+  #toast { position: fixed; z-index: 50; left: 50%; top: calc(var(--top) + 64px); transform: translateX(-50%); background: rgba(0,0,0,.78); color: #fff;
+    padding: 9px 14px; border-radius: 12px; font-size: 15px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: 90vw; text-align: center; }
   #toast.show { opacity: 1; }
-
-  .me { position: relative; width: 22px; height: 22px; }
-  .me-dot { position: absolute; inset: 2px; border-radius: 50%; background: #2b7bff; border: 3px solid #fff; box-shadow: 0 0 0 2px rgba(43,123,255,.35); }
-  .cone { position: absolute; left: -9px; top: -9px; width: 40px; height: 40px; display: none;
-    background: radial-gradient(circle at 50% 100%, rgba(43,123,255,.55), transparent 70%); clip-path: polygon(50% 50%, 25% 0, 75% 0); }
-  .leaflet-control-attribution { font-size: 10px; margin-bottom: var(--bottom) !important; }
-  .leaflet-control-zoom { display: none; }
+  .maplibregl-ctrl-attrib { font-size: 10px; }
+  .maplibregl-ctrl-top-left { top: var(--top); }
 </style>
 </head>
 <body class="glass">
 <div id="map"></div>
 
-<div id="searchWrap">
-  <form id="searchForm" class="surface" autocomplete="off">
-    <input id="q" type="search" placeholder="Search places or addresses" enterkeyhint="search">
-    <button type="button" id="clearQ" aria-label="Clear">✕</button>
-  </form>
-  <div id="results" class="surface"></div>
+<div id="controls">
+  <div class="pill mat">
+    <button id="mapsBtn" aria-label="Map style">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M9 4 3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5zM9 4v13.5M15 6.5V20"/></svg>
+    </button>
+    <button id="locBtn" aria-label="Show my location">
+      <svg id="locIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M20.5 3.5 3.5 10.6l7.3 2.6 2.6 7.3z"/></svg>
+    </button>
+  </div>
+  <button id="compass" class="mat" aria-label="Point north" hidden>
+    <svg viewBox="0 0 30 30"><path d="M15 3 19 15h-8z" fill="#ff3b30"/><path d="M15 27 11 15h8z" fill="currentColor" opacity=".45"/></svg>
+  </button>
 </div>
 
-<div id="navBanner" class="surface">
+<div id="sheet" class="mat">
+  <div class="grabber" data-grab></div>
+
+  <!-- Home: search, favorites, recents, results -->
+  <div class="panel" id="p-home">
+    <div class="searchRow" data-grab>
+      <label class="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/></svg>
+        <input id="q" type="search" placeholder="Search Maps" autocomplete="off" autocorrect="off" enterkeyhint="search">
+        <button id="qClear" aria-label="Clear search" hidden>✕</button>
+      </label>
+      <button id="cancelBtn" hidden>Cancel</button>
+      <button id="setBtn" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.4 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.9c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+      </button>
+    </div>
+    <div class="scroll" id="homeBody"></div>
+  </div>
+
+  <!-- Place card -->
+  <div class="panel" id="p-place" hidden>
+    <div class="head" data-grab>
+      <div style="flex:1;min-width:0"><h1 id="plName"></h1><div class="sub" id="plSub"></div></div>
+      <button class="closeX" data-back aria-label="Close">✕</button>
+    </div>
+    <div class="actions">
+      <button class="btn primary" id="plDir">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.7 11.3 12.7 2.3a1 1 0 0 0-1.4 0l-9 9a1 1 0 0 0 0 1.4l9 9a1 1 0 0 0 1.4 0l9-9a1 1 0 0 0 0-1.4zM14 14.5V12h-4v3H8v-4a1 1 0 0 1 1-1h5V7.5l3.5 3.5z"/></svg>
+        <span id="plDirTxt">Directions</span>
+      </button>
+      <button class="btn" id="plSave">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3l-6.2 3.7 1.7-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.5 4.8 1.7 7z"/></svg>
+        <span id="plSaveTxt">Save</span>
+      </button>
+      <button class="btn" id="plRename" hidden>
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.2V21h3.8l11-11-3.8-3.8zM20.7 7a1 1 0 0 0 0-1.4l-2.3-2.3a1 1 0 0 0-1.4 0l-1.8 1.8 3.8 3.8z"/></svg>
+        <span>Rename</span>
+      </button>
+    </div>
+    <div class="scroll">
+      <div class="group info" id="plInfo"></div>
+    </div>
+  </div>
+
+  <!-- Directions -->
+  <div class="panel" id="p-route" hidden>
+    <div class="head" data-grab>
+      <h1>Directions</h1>
+      <button class="closeX" data-back aria-label="Close">✕</button>
+    </div>
+    <div class="scroll">
+      <div class="fromTo">
+        <div class="row"><span class="dot" style="background:#0a84ff"></span><span>My Location</span></div>
+        <div class="row"><span class="dot" style="background:#ff3b30"></span><span id="rtTo"></span></div>
+      </div>
+      <div class="seg" id="modes">
+        <button data-mode="car"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.9 6a1.5 1.5 0 0 0-1.4-1h-11a1.5 1.5 0 0 0-1.4 1L3 12v8a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-1h12v1a1 1 0 0 0 1 1h1a1 1 0 0 0 1-1v-8zM6.5 16a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm11 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM5 11l1.5-4.5h11L19 11z"/></svg>Drive</button>
+        <button data-mode="foot"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="13.5" cy="4" r="2"/><path d="M9.8 8.9 7 23h2.1l1.8-8 2.1 2v6h2v-7.5l-2.1-2 .6-3A7.3 7.3 0 0 0 19 13v-2a5.4 5.4 0 0 1-4.6-2.6l-1-1.6A2 2 0 0 0 11 6a2 2 0 0 0-.8.2L5 8.3V13h2V9.6z"/></svg>Walk</button>
+        <button data-mode="bike"><svg viewBox="0 0 24 24" fill="currentColor"><circle cx="15.5" cy="4.5" r="2"/><path d="M5 12a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 8.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7zm5.8-10L13 8.3l.8.8A7 7 0 0 0 19 11V9a5 5 0 0 1-3.6-1.5l-1.9-1.9a2 2 0 0 0-2.8 0L7.4 8.8a2 2 0 0 0 .2 2.9L11 14v5h2v-6.2l-2.2-2.3zM19 12a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 8.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>Cycle</button>
+      </div>
+      <div id="rtList"></div>
+    </div>
+  </div>
+
+  <!-- Map style -->
+  <div class="panel" id="p-maps" hidden>
+    <div class="head" data-grab><h1>Choose Map</h1><button class="closeX" data-back aria-label="Close">✕</button></div>
+    <div class="scroll">
+      <div class="styles" id="styles"></div>
+      <div class="label">Map appearance</div>
+      <div class="seg" id="optTheme"><button data-v="auto">Auto</button><button data-v="light">Light</button><button data-v="dark">Dark</button></div>
+      <div class="label">Options</div>
+      <div class="group"><div class="setRow"><span>3D buildings</span><label class="switch"><input type="checkbox" id="opt3d"><span></span></label></div></div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div class="panel" id="p-settings" hidden>
+    <div class="head" data-grab><h1>Settings</h1><button class="closeX" data-back aria-label="Close">✕</button></div>
+    <div class="scroll">
+      <div class="label">Look</div>
+      <div class="seg" id="optLook"><button data-v="glass">Liquid Glass</button><button data-v="solid">Solid</button></div>
+      <div class="label">Accent color</div>
+      <div class="group"><div class="swatches" id="swatches"></div></div>
+      <div class="label">Map buttons</div>
+      <div class="seg" id="optSide"><button data-v="left">Left</button><button data-v="right">Right</button></div>
+      <div class="label">Spoken directions</div>
+      <div class="group">
+        <div class="setRow"><span>Voice guidance</span><label class="switch"><input type="checkbox" id="optVoice"><span></span></label></div>
+        <div class="setRow" style="padding:0"><select class="field" id="voiceSel" aria-label="Voice"></select></div>
+        <div class="setRow" style="padding:0"><button class="linkBtn" id="testVoice">Play sample</button></div>
+      </div>
+      <div class="label">Distances</div>
+      <div class="seg" id="optUnits"><button data-v="auto">Auto</button><button data-v="mi">Miles</button><button data-v="km">Kilometers</button></div>
+      <p class="muted" style="margin:22px 12px 0">Your favorites and settings stay on this phone. Maps © OpenFreeMap, OpenMapTiles, OpenStreetMap contributors. Imagery © Esri. Search by Photon. Routes by OSRM.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Navigation -->
+<div id="navBanner" hidden>
   <div id="navArrow"></div>
-  <div style="min-width:0;flex:1">
-    <div id="navDist"></div>
-    <div id="navText"></div>
-    <div id="navThen"></div>
-  </div>
+  <div style="flex:1;min-width:0"><div id="navDist"></div><div id="navText"></div></div>
 </div>
-
-<div id="routeBar" class="bottomBar surface">
-  <div class="top">
-    <div style="min-width:0">
-      <div class="big" id="routeStats">Routing…</div>
-      <div class="sub" id="routeTo"></div>
-    </div>
-    <button class="primary" id="goBtn" disabled>Go</button>
-    <button class="x" id="routeClose" aria-label="Clear route">✕</button>
-  </div>
-  <div class="seg" id="modes">
-    <button data-mode="car">🚗 Drive</button>
-    <button data-mode="foot">🚶 Walk</button>
-    <button data-mode="bike">🚲 Bike</button>
-  </div>
-</div>
-
-<div id="navBar" class="bottomBar surface">
-  <div class="top">
-    <div style="min-width:0">
-      <div class="big" id="navEta"></div>
-      <div class="sub" id="navRemain"></div>
-    </div>
-    <button class="iconBtn" id="muteBtn" aria-label="Voice on or off">🔊</button>
-    <button class="primary danger" id="endBtn">End</button>
-  </div>
-</div>
-
-<div id="fabs">
-  <button class="fab surface" id="layersBtn" aria-label="Map style">
-    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 1 8l11 6 11-6zM3.3 11.6 1 12.9l11 6 11-6-2.3-1.3L12 16.4zm0 4.6L1 17.5l11 6 11-6-2.3-1.3L12 21z"/></svg>
-  </button>
-  <button class="fab surface" id="favBtn" aria-label="Favorites">
-    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3l-6.2 3.7 1.7-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.5 4.8 1.7 7z"/></svg>
-  </button>
-  <button class="fab surface" id="setBtn" aria-label="Settings">
-    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.7-1L15 3h-4l-.4 2.9a7.4 7.4 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.9c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
-  </button>
-  <button class="fab surface" id="locBtn" aria-label="My location">
-    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 3L3 10.5l7.5 3 3 7.5z"/></svg>
-  </button>
-</div>
-
-<!-- Map style sheet -->
-<div class="sheet surface" id="layersSheet">
-  <header><h2>Map</h2><button class="x" data-close aria-label="Close">✕</button></header>
-  <div class="sheetBody">
-    <div class="label">Style</div>
-    <div class="styles" id="styles"></div>
-  </div>
-</div>
-
-<!-- Favorites sheet -->
-<div class="sheet surface" id="favSheet">
-  <header><h2>Favorites</h2><button class="x" data-close aria-label="Close">✕</button></header>
-  <div class="sheetBody" id="favList"></div>
-</div>
-
-<!-- Settings sheet -->
-<div class="sheet surface" id="setSheet">
-  <header><h2>Customize</h2><button class="x" data-close aria-label="Close">✕</button></header>
-  <div class="sheetBody">
-    <div class="label">Button style</div>
-    <div class="seg" id="optLook"><button data-v="glass">💧 Liquid Glass</button><button data-v="solid">⬤ Solid</button></div>
-
-    <div class="label">Accent color</div>
-    <div class="swatches" id="swatches"></div>
-
-    <div class="label">Button size</div>
-    <div class="seg" id="optSize"><button data-v="44">Small</button><button data-v="52">Medium</button><button data-v="62">Large</button></div>
-
-    <div class="label">Buttons on</div>
-    <div class="seg" id="optSide"><button data-v="left">Left</button><button data-v="right">Right</button></div>
-
-    <div class="label">Voice directions</div>
-    <div class="switchRow"><div>Speak turn-by-turn directions</div><label class="switch"><input type="checkbox" id="voiceToggle"><span></span></label></div>
-    <select class="field" id="voiceSel"></select>
-    <div class="seg"><button id="testVoice">▶︎ Test voice</button></div>
-
-    <div class="label">Units</div>
-    <div class="seg" id="optUnits"><button data-v="auto">Auto</button><button data-v="mi">Miles</button><button data-v="km">Kilometers</button></div>
-
-  </div>
+<div id="navThen" hidden></div>
+<button id="recenter" class="mat" hidden>Re-center</button>
+<div id="navBar" class="mat" hidden>
+  <button class="round" id="muteBtn" aria-label="Voice on or off">🔊</button>
+  <div class="navStat"><b id="navArrive">--</b><small>arrival</small></div>
+  <div class="navStat"><b id="navMin">--</b><small id="navMinL">min</small></div>
+  <div class="navStat"><b id="navDistLeft">--</b><small id="navDistL">mi</small></div>
+  <button id="endBtn">End</button>
 </div>
 
 <div id="toast"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.6.0/maplibre-gl.js"></script>
 <script>
 (() => {
+  'use strict';
   const $ = id => document.getElementById(id);
-  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const store = {
     get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
   };
-  let toastTimer;
-  function toast(msg) {
-    const t = $('toast'); t.textContent = msg; t.classList.add('show');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
-  }
-  const darkMQ = matchMedia('(prefers-color-scheme: dark)');
+  let toastT;
+  const toast = m => { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600); };
+
+  if (!window.maplibregl) { document.body.innerHTML = '<p style="padding:40px 20px;font:17px -apple-system,sans-serif">The map could not load. Check your internet connection and reopen the app.</p>'; return; }
 
   // ================= Settings =================
-  const DEFAULTS = { look: 'glass', accent: '#1f7a5c', size: '52', side: 'right', voice: true, voiceURI: '',
-    units: 'auto', style: 'standard', mode: 'car' };
-  const S = Object.assign({}, DEFAULTS, store.get('settings', {}));
-  const save = () => store.set('settings', S);
-  const ACCENTS = ['#1f7a5c', '#0a84ff', '#5e5ce6', '#bf5af2', '#ff375f', '#ff9f0a', '#30b0c7', '#3a3a3c'];
+  const S = Object.assign({ look: 'glass', accent: '#0a84ff', side: 'right', voice: true, voiceURI: '', units: 'auto',
+    style: 'standard', theme: 'auto', b3d: true, mode: 'car' }, store.get('settings2', {}));
+  const save = () => store.set('settings2', S);
+  const ACCENTS = ['#0a84ff', '#30d158', '#5e5ce6', '#bf5af2', '#ff375f', '#ff9f0a', '#64d2ff', '#8e8e93'];
+  const darkMQ = matchMedia('(prefers-color-scheme: dark)');
+  const isDark = () => S.theme === 'dark' || (S.theme === 'auto' && darkMQ.matches);
 
-  function applyLook() {
+  function markSeg(id, v) { document.querySelectorAll(`#${id} button`).forEach(b => b.classList.toggle('on', b.dataset.v === v)); }
+  function applyUI() {
+    document.documentElement.dataset.theme = isDark() ? 'dark' : 'light';
     document.body.classList.toggle('glass', S.look === 'glass');
     document.body.classList.toggle('left', S.side === 'left');
     document.documentElement.style.setProperty('--accent', S.accent);
-    document.documentElement.style.setProperty('--fab', S.size + 'px');
-    document.querySelector('meta[name=theme-color]').content = S.accent;
-    markSeg('optLook', S.look); markSeg('optSize', S.size); markSeg('optSide', S.side); markSeg('optUnits', S.units);
+    document.querySelector('meta[name=theme-color]').content = isDark() ? '#25272b' : '#f3f1ec';
+    markSeg('optLook', S.look); markSeg('optSide', S.side); markSeg('optUnits', S.units); markSeg('optTheme', S.theme);
     document.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', b.dataset.c === S.accent));
-    $('customColor') && ($('customColor').value = S.accent);
-    $('voiceToggle').checked = S.voice;
+    $('optVoice').checked = S.voice; $('opt3d').checked = S.b3d;
     $('muteBtn').textContent = S.voice ? '🔊' : '🔇';
   }
-  function markSeg(id, v) { document.querySelectorAll(`#${id} button`).forEach(b => b.classList.toggle('on', b.dataset.v === v)); }
   function bindSeg(id, key, after) {
-    document.querySelectorAll(`#${id} button`).forEach(b => b.onclick = () => { S[key] = b.dataset.v; save(); applyLook(); after && after(); });
+    document.querySelectorAll(`#${id} button`).forEach(b => b.onclick = () => { S[key] = b.dataset.v; save(); applyUI(); after && after(); });
   }
-  bindSeg('optLook', 'look'); bindSeg('optSize', 'size'); bindSeg('optSide', 'side'); bindSeg('optUnits', 'units', () => nav && renderNav());
-  $('swatches').innerHTML = ACCENTS.map(c => `<button class="sw" data-c="${c}" style="background:${c}" aria-label="Color ${c}"></button>`).join('') +
-    '<input type="color" id="customColor" aria-label="Custom color">';
-  document.querySelectorAll('.sw').forEach(b => b.onclick = () => { S.accent = b.dataset.c; save(); applyLook(); });
-  $('customColor').oninput = e => { S.accent = e.target.value; save(); applyLook(); };
-  $('voiceToggle').onchange = e => { S.voice = e.target.checked; save(); applyLook(); };
+  $('swatches').innerHTML = ACCENTS.map(c => `<button class="sw" data-c="${c}" style="background:${c}" aria-label="Accent color"></button>`).join('');
+  document.querySelectorAll('.sw').forEach(b => b.onclick = () => { S.accent = b.dataset.c; save(); applyUI(); if (map.getLayer('fm-route')) map.setPaintProperty('fm-route', 'line-color', routeColor()); });
+  bindSeg('optLook', 'look'); bindSeg('optSide', 'side'); bindSeg('optUnits', 'units', () => nav && renderNav());
+  bindSeg('optTheme', 'theme', () => applyMapLook());
+  darkMQ.addEventListener?.('change', () => { applyUI(); applyMapLook(); });
+  $('optVoice').onchange = e => { S.voice = e.target.checked; save(); applyUI(); };
+  $('opt3d').onchange = e => { S.b3d = e.target.checked; save(); applyMapLook(); };
 
-  // ================= Map & styles =================
-  const last = store.get('view', { lat: 39.5, lng: -98.35, z: 4 });
-  const map = L.map('map', { zoomControl: false, tap: false }).setView([last.lat, last.lng], last.z);
-  map.on('moveend', () => { const c = map.getCenter(); store.set('view', { lat: c.lat, lng: c.lng, z: map.getZoom() }); });
+  // ================= Units =================
+  const imperial = () => S.units === 'mi' || (S.units === 'auto' && /^en-(US|LR|MM)/.test(navigator.language));
+  function distParts(m) {
+    if (imperial()) {
+      const ft = m * 3.281;
+      if (ft < 1000) return [String(Math.max(50, Math.round(ft / 50) * 50)), 'ft', 'feet'];
+      const mi = m / 1609.34, v = mi < 10 ? mi.toFixed(1) : String(Math.round(mi));
+      return [v, 'mi', v === '1.0' ? 'mile' : 'miles'];
+    }
+    if (m < 1000) { const step = m < 300 ? 10 : 50; return [String(Math.max(10, Math.round(m / step) * step)), 'm', 'meters']; }
+    const km = m / 1000, v = km < 10 ? km.toFixed(1) : String(Math.round(km));
+    return [v, 'km', 'kilometers'];
+  }
+  const fmtDist = m => { const p = distParts(m); return `${p[0]} ${p[1]}`; };
+  const sayDist = m => { const p = distParts(m); return `${p[0]} ${p[2]}`; };
+  const fmtTime = s => { const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h} hr ${m} min` : `${Math.max(1, m)} min`; };
+  const clock = s => new Date(Date.now() + s * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(/\s?[AP]M$/i, '');
 
-  const esriAttr = 'Imagery &copy; Esri, Maxar, Earthstar Geographics';
-  const osmAttr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-  const esri = p => `https://server.arcgisonline.com/ArcGIS/rest/services/${p}/MapServer/tile/{z}/{y}/{x}`;
-  const STYLES = {
-    standard: { name: 'Standard', layers: () => [L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: osmAttr })],
-      preview: (z, x, y) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png` },
-    satellite: { name: 'Satellite', layers: () => [L.tileLayer(esri('World_Imagery'), { maxZoom: 19, maxNativeZoom: 18, attribution: esriAttr })],
-      preview: (z, x, y) => esri('World_Imagery').replace('{z}', z).replace('{y}', y).replace('{x}', x) },
-    hybrid: { name: 'Hybrid', layers: () => [
-        L.tileLayer(esri('World_Imagery'), { maxZoom: 19, maxNativeZoom: 18, attribution: esriAttr }),
-        L.tileLayer(esri('Reference/World_Transportation'), { maxZoom: 19, maxNativeZoom: 18, opacity: .9 }),
-        L.tileLayer(esri('Reference/World_Boundaries_and_Places'), { maxZoom: 19, maxNativeZoom: 18 })],
-      preview: (z, x, y) => esri('World_Imagery').replace('{z}', z).replace('{y}', y).replace('{x}', x) },
-    dark: { name: 'Dark', layers: () => [
-        L.tileLayer(esri('Canvas/World_Dark_Gray_Base'), { maxZoom: 19, maxNativeZoom: 16, attribution: 'Map &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors' }),
-        L.tileLayer(esri('Canvas/World_Dark_Gray_Reference'), { maxZoom: 19, maxNativeZoom: 16 })],
-      preview: (z, x, y) => esri('Canvas/World_Dark_Gray_Base').replace('{z}', Math.min(z, 16)).replace('{y}', y >> Math.max(0, z - 16)).replace('{x}', x >> Math.max(0, z - 16)) }
+  // ================= Geometry helpers =================
+  const R = 6371008.8, rad = d => d * Math.PI / 180, deg = r => r * 180 / Math.PI;
+  function dist(a, b) {
+    const dLat = rad(b[1] - a[1]), dLng = rad(b[0] - a[0]);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a[1])) * Math.cos(rad(b[1])) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  function bearing(a, b) {
+    const y = Math.sin(rad(b[0] - a[0])) * Math.cos(rad(b[1]));
+    const x = Math.cos(rad(a[1])) * Math.sin(rad(b[1])) - Math.sin(rad(a[1])) * Math.cos(rad(b[1])) * Math.cos(rad(b[0] - a[0]));
+    return (deg(Math.atan2(y, x)) + 360) % 360;
+  }
+
+  // ================= Map look (Apple-like colors) =================
+  const LIGHT = { land: '#f3f1ec', res: '#efece6', park: '#cdeac0', wood: '#c1e3b2', grass: '#d5edc9', other: null, water: '#a3d4f7', waterLabel: '#3f7fb5',
+    bld: '#e5e1db', bld3d: '#ebe8e3', road: '#ffffff', roadCase: '#dcd8d1', prim: '#fff4c4', primCase: '#e6cd85', mot: '#fbd06c', motCase: '#dea63a',
+    path: '#d9d4cc', rail: '#c9c5be', boundary: '#b6b0c4', label: '#3a3a3c', halo: '#ffffff', roadLabel: '#5a5a5f', aero: '#e7e4ee', poi: null };
+  const DARK = { land: '#25272b', res: '#2a2c31', park: '#1e3427', wood: '#1c3225', grass: '#21372a', other: '#2a2c31', water: '#14273c', waterLabel: '#7aa6cf',
+    bld: '#33363b', bld3d: '#3b3e44', road: '#46494f', roadCase: '#2c2e33', prim: '#5a5749', primCase: '#3b392f', mot: '#93773f', motCase: '#5f4c27',
+    path: '#3c3f45', rail: '#4b4e55', boundary: '#6e6982', label: '#e5e5ea', halo: '#1c1c1e', roadLabel: '#c7c7cc', aero: '#30323a', poi: '#d1d1d6' };
+  let baseLayers = [], orig = {};
+
+  function lineClass(id) {
+    if (/rail|hatching/.test(id)) return 'rail';
+    if (/path|pedestrian/.test(id)) return 'path';
+    if (/motorway/.test(id)) return 'mot';
+    if (/trunk_primary/.test(id)) return 'prim';
+    return 'road';
+  }
+  // Paint values for one layer, given the palette and map mode
+  function paintFor(l, T, mode) {
+    const id = l.id, p = {};
+    const hybrid = mode === 'hybrid';
+    if (l.type === 'background') p['background-color'] = T.land;
+    else if (l.type === 'fill' || l.type === 'fill-extrusion') {
+      const k = l.type === 'fill' ? 'fill-color' : 'fill-extrusion-color';
+      if (id === 'water') p[k] = T.water;
+      else if (id === 'park') p[k] = T.park;
+      else if (id === 'landcover_wood') p[k] = T.wood;
+      else if (id === 'landcover_grass') p[k] = T.grass;
+      else if (id === 'landuse_residential') p[k] = T.res;
+      else if (id === 'building') p[k] = T.bld;
+      else if (id === 'building-3d') { p[k] = T.bld3d; p['fill-extrusion-opacity'] = .6; }
+      else if (id === 'aeroway_fill') p[k] = T.aero;
+      else if (T.other && !/pattern/.test(id)) p[k] = T.other;
+    } else if (l.type === 'line') {
+      if (/^waterway/.test(id)) p['line-color'] = T.water;
+      else if (/^boundary/.test(id)) p['line-color'] = T.boundary;
+      else if (/^aeroway/.test(id)) p['line-color'] = T.road;
+      else if (l['source-layer'] === 'transportation') {
+        const c = lineClass(id), cas = /casing/.test(id);
+        p['line-color'] = c === 'rail' ? T.rail : c === 'path' ? T.path : c === 'mot' ? (cas ? T.motCase : T.mot) : c === 'prim' ? (cas ? T.primCase : T.prim) : (cas ? T.roadCase : T.road);
+        if (hybrid) p['line-opacity'] = cas ? 0 : (c === 'mot' || c === 'prim' ? .75 : .4);
+      }
+    } else if (l.type === 'symbol') {
+      if (hybrid) { p['text-color'] = '#ffffff'; p['text-halo-color'] = 'rgba(0,0,0,.75)'; }
+      else {
+        p['text-halo-color'] = T.halo;
+        if (/^water|waterway/.test(id)) p['text-color'] = T.waterLabel;
+        else if (/^highway-name|road/.test(id)) p['text-color'] = T.roadLabel;
+        else if (/^poi|airport/.test(id)) { if (T.poi) p['text-color'] = T.poi; }
+        else p['text-color'] = T.label;
+      }
+    }
+    return p;
+  }
+  // Which layers show in each mode
+  function visibleIn(l, mode) {
+    if (l.id === 'natural_earth' || l.id === 'park_outline' || l.id === 'road_area_pattern') return false;
+    if (l.id === 'building-3d') return mode === 'standard' && S.b3d;
+    if (mode === 'satellite') return l.type === 'background';
+    if (mode === 'hybrid') return l.type === 'symbol' || (l.type === 'line' && l['source-layer'] === 'transportation' && !/rail|hatching|path/.test(l.id)) || /^boundary/.test(l.id);
+    return true;
+  }
+  function patchStyle(style) {
+    const T = isDark() ? DARK : LIGHT;
+    style.layers.forEach(l => {
+      baseLayers.push({ id: l.id, type: l.type, 'source-layer': l['source-layer'] });
+      orig[l.id] = Object.assign({}, l.paint);
+      const p = paintFor(l, T, S.style);
+      l.paint = Object.assign({}, l.paint, p);
+      l.layout = Object.assign({}, l.layout, { visibility: visibleIn(l, S.style) ? 'visible' : 'none' });
+    });
+    style.sources.esri = { type: 'raster', tileSize: 256, maxzoom: 18, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
+      tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'] };
+    const sat = { id: 'sat', type: 'raster', source: 'esri', layout: { visibility: S.style === 'standard' ? 'none' : 'visible' }, paint: { 'raster-fade-duration': 150 } };
+    style.layers.splice(1, 0, sat);
+    return style;
+  }
+  function applyMapLook() {
+    applyUI();
+    if (!map || !map.isStyleLoaded()) return;
+    const T = isDark() ? DARK : LIGHT;
+    baseLayers.forEach(l => {
+      if (!map.getLayer(l.id)) return;
+      const want = paintFor(l, T, S.style);
+      for (const k of new Set([...Object.keys(want), 'line-opacity'])) {
+        if (k === 'line-opacity' && l.type !== 'line') continue;
+        const v = k in want ? want[k] : (orig[l.id] && orig[l.id][k]);
+        try { map.setPaintProperty(l.id, k, v === undefined ? null : v); } catch {}
+      }
+      map.setLayoutProperty(l.id, 'visibility', visibleIn(l, S.style) ? 'visible' : 'none');
+    });
+    map.setLayoutProperty('sat', 'visibility', S.style === 'standard' ? 'none' : 'visible');
+    document.querySelectorAll('.styleOpt').forEach(b => b.classList.toggle('on', b.dataset.s === S.style));
+  }
+
+  // ================= Map =================
+  const view = store.get('view2', { c: [-98.35, 39.5], z: 3.5, b: 0 });
+  let map;
+  async function initMap() {
+    let style;
+    try { style = await (await fetch('https://tiles.openfreemap.org/styles/liberty')).json(); }
+    catch { toast('Could not load the map. Check your connection.'); return; }
+    map = new maplibregl.Map({
+      container: 'map', style: patchStyle(style), center: view.c, zoom: view.z, bearing: view.b || 0,
+      attributionControl: { compact: true }, maxPitch: 70, renderWorldCopies: false, fadeDuration: 150,
+      dragRotate: true, touchPitch: true, pitchWithRotate: true
+    });
+    map.touchZoomRotate.enableRotation();
+    map.on('load', onMapLoad);
+  }
+  function routeColor() { return S.accent; }
+  function onMapLoad() {
+    const firstSymbol = map.getStyle().layers.find(l => l.type === 'symbol')?.id;
+    map.addSource('fm-routes', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'fm-alt', type: 'line', source: 'fm-routes', filter: ['!=', ['get', 'sel'], true],
+      layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#8fb8f0', 'line-width': 7, 'line-opacity': .85 } }, firstSymbol);
+    map.addLayer({ id: 'fm-route-case', type: 'line', source: 'fm-routes', filter: ['==', ['get', 'sel'], true],
+      layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#0b4fae', 'line-width': 11 } }, firstSymbol);
+    map.addLayer({ id: 'fm-route', type: 'line', source: 'fm-routes', filter: ['==', ['get', 'sel'], true],
+      layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': routeColor(), 'line-width': 7.5 } }, firstSymbol);
+    map.on('moveend', () => { const c = map.getCenter(); store.set('view2', { c: [c.lng, c.lat], z: map.getZoom(), b: map.getBearing() }); });
+    map.on('rotate', updateCompass); updateCompass();
+    map.on('dragstart', () => { if (follow) { follow = 0; updateLocBtn(); if (nav) $('recenter').hidden = false; } });
+    map.on('click', onMapClick);
+    setupLongPress();
+    drawFavs();
+    if (navigator.permissions) navigator.permissions.query({ name: 'geolocation' }).then(p => { if (p.state === 'granted') startLocating(!store.get('view2', null) ? 1 : 0); }).catch(() => {});
+  }
+  function updateCompass() {
+    const b = map.getBearing();
+    $('compass').hidden = Math.abs(b) < 1 && map.getPitch() < 1;
+    $('compass').querySelector('svg').style.transform = `rotate(${-b}deg)`;
+  }
+  $('compass').onclick = () => { if (follow === 2) { follow = 1; updateLocBtn(); } map.easeTo({ bearing: 0, pitch: 0, duration: 400 }); };
+
+  // ================= Bottom sheet =================
+  const sheet = $('sheet');
+  let sheetState = 'peek', panel = 'home', sheetH = 0;
+  const fullH = () => sheet.offsetHeight;
+  function stateHeight(st) {
+    const vh = innerHeight, bottom = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bottom')) || 0;
+    if (st === 'full') return fullH();
+    if (st === 'half') return Math.min(fullH(), Math.round(vh * .5));
+    if (st === 'hidden') return 0;
+    // peek: just the header of the current panel
+    const p = $('p-' + panel);
+    if (panel === 'home') return 20 + 50 + Math.max(bottom, 8);
+    if (panel === 'place') return Math.min(fullH(), 20 + p.querySelector('.head').offsetHeight + p.querySelector('.actions').offsetHeight + 14 + Math.max(bottom, 8));
+    return Math.min(fullH(), Math.round(vh * .5));
+  }
+  function setSheet(st, animate = true) {
+    sheetState = st;
+    sheetH = stateHeight(st);
+    sheet.classList.toggle('dragging', !animate);
+    sheet.style.transform = `translateY(${fullH() - sheetH}px)`;
+  }
+  function showPanel(name, st) {
+    panel = name;
+    document.querySelectorAll('#sheet .panel').forEach(p => p.hidden = p.id !== 'p-' + name);
+    setSheet(st || 'half');
+  }
+  document.querySelectorAll('[data-back]').forEach(b => b.onclick = () => backHome());
+  function backHome() {
+    if (panel === 'route') clearRoute();
+    if (panel === 'place' || panel === 'route') clearSelection();
+    showPanel('home', 'peek');
+    renderHome();
+  }
+  // Drag to resize
+  (() => {
+    let startY = 0, startT = 0, lastY = 0, lastT = 0, vel = 0, dragging = false, pid = null;
+    sheet.addEventListener('pointerdown', e => {
+      if (!e.target.closest('[data-grab]')) return;
+      if (e.target.closest('input, button, select, a, .favRow')) return;
+      dragging = true; pid = e.pointerId; startY = lastY = e.clientY; lastT = performance.now();
+      startT = fullH() - sheetH; vel = 0;
+      sheet.classList.add('dragging');
+    });
+    addEventListener('pointermove', e => {
+      if (!dragging || e.pointerId !== pid) return;
+      const now = performance.now(); vel = (e.clientY - lastY) / Math.max(1, now - lastT); lastY = e.clientY; lastT = now;
+      const t = Math.max(0, Math.min(fullH() - 60, startT + e.clientY - startY));
+      sheet.style.transform = `translateY(${t}px)`;
+    });
+    const end = e => {
+      if (!dragging || e.pointerId !== pid) return;
+      dragging = false; sheet.classList.remove('dragging');
+      if (Math.abs(lastY - startY) < 6) { setSheet(sheetState); return; }
+      const cur = fullH() - (startT + lastY - startY);
+      const order = ['peek', 'half', 'full'];
+      let target = order.reduce((a, s) => Math.abs(stateHeight(s) - cur) < Math.abs(stateHeight(a) - cur) ? s : a, 'peek');
+      if (vel > .6) target = order[Math.max(0, order.indexOf(sheetState) - 1)];
+      if (vel < -.6) target = order[Math.min(2, order.indexOf(sheetState) + 1)];
+      setSheet(target);
+      if (target !== 'full') $('q').blur();
+    };
+    addEventListener('pointerup', end); addEventListener('pointercancel', end);
+    addEventListener('resize', () => setSheet(sheetState, false));
+  })();
+
+  // ================= Icons & categories =================
+  const GLYPH = {
+    pin: '<path d="M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>',
+    food: '<path d="M8 2v7a2 2 0 0 1-1.5 1.9V22h-2V10.9A2 2 0 0 1 3 9V2h1.2v6h1V2h1.6v6h1V2zm8 0c2.2 0 3.5 2.4 3.5 6 0 2.2-1 3.7-2.5 4.2V22h-2V2z"/>',
+    tree: '<path d="M12 2 6 11h3l-4 6h6v5h2v-5h6l-4-6h3z"/>',
+    bag: '<path d="M7 7V6a5 5 0 0 1 10 0v1h3l1 15H3L4 7zm2 0h6V6a3 3 0 0 0-6 0z"/>',
+    bus: '<path d="M5 3h14a2 2 0 0 1 2 2v12a2 2 0 0 1-1 1.7V21h-3v-2H7v2H4v-2.3A2 2 0 0 1 3 17V5a2 2 0 0 1 2-2zm0 3v5h14V6zm2 8.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm10 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/>',
+    bed: '<path d="M3 5h2v8h6V8h7a3 3 0 0 1 3 3v8h-2v-3H5v3H3zm5 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4z"/>',
+    plus: '<path d="M10 3h4v7h7v4h-7v7h-4v-7H3v-4h7z"/>',
+    star: '<path d="M12 17.3l-6.2 3.7 1.7-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.5 4.8 1.7 7z"/>',
+    clock: '<path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 10.4 3.6 2.1-1 1.7L11 13V6h2z"/>',
+    city: '<path d="M3 21V9l6-3v3l6-3v15zm14 0V10h4v11zM6 12v2h2v-2zm0 4v2h2v-2zm5-4v2h2v-2zm0 4v2h2v-2z"/>'
   };
-  let baseLayers = [];
-  function setStyle(key) {
-    if (!STYLES[key]) key = 'standard';
-    S.style = key; save();
-    baseLayers.forEach(l => map.removeLayer(l));
-    baseLayers = STYLES[key].layers();
-    baseLayers.forEach((l, i) => l.setZIndex(i + 1).addTo(map));
-    document.querySelectorAll('.styleOpt').forEach(b => b.classList.toggle('on', b.dataset.s === key));
+  const svg = g => `<svg viewBox="0 0 24 24" fill="currentColor">${GLYPH[g] || GLYPH.pin}</svg>`;
+  function category(key, value) {
+    const v = String(value || '');
+    if (/restaurant|cafe|fast_food|bar|pub|food|ice_cream|bakery/.test(v)) return { g: 'food', c: '#ff9f0a' };
+    if (/park|garden|nature|wood|forest|playground|beach|leisure/.test(v) || key === 'leisure' || key === 'natural') return { g: 'tree', c: '#30b955' };
+    if (key === 'shop' || /mall|supermarket|marketplace/.test(v)) return { g: 'bag', c: '#bf5af2' };
+    if (/station|bus|stop|aerodrome|airport|railway|ferry|transit|subway|tram/.test(v) || key === 'railway' || key === 'public_transport') return { g: 'bus', c: '#0a84ff' };
+    if (/hotel|motel|hostel|guest/.test(v) || key === 'tourism' && /hotel/.test(v)) return { g: 'bed', c: '#5e5ce6' };
+    if (/hospital|clinic|pharmacy|doctors|dentist/.test(v)) return { g: 'plus', c: '#ff453a' };
+    if (key === 'place' || key === 'boundary' || /city|town|village|suburb|state|country/.test(v)) return { g: 'city', c: '#8e8e93' };
+    return { g: 'pin', c: '#ff375f' };
   }
-  function renderStyleOptions() {
-    const c = map.getCenter(), z = Math.min(Math.max(map.getZoom(), 3), 15);
-    const n = 2 ** z, x = Math.floor((c.lng + 180) / 360 * n);
-    const r = c.lat * Math.PI / 180, y = Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n);
-    $('styles').innerHTML = Object.entries(STYLES).map(([k, s]) =>
-      `<button class="styleOpt ${k === S.style ? 'on' : ''}" data-s="${k}"><img alt="" src="${s.preview(z, x, y)}"><div>${s.name}</div></button>`).join('');
-    document.querySelectorAll('.styleOpt').forEach(b => b.onclick = () => setStyle(b.dataset.s));
+  const prettyCat = v => (!v || v === 'yes') ? '' : v.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+
+  // ================= Home: favorites, recents, search =================
+  let favs = store.get('favorites2', []);
+  let recents = store.get('recents2', []);
+  const saveFavs = () => store.set('favorites2', favs);
+  function addRecent(p) {
+    recents = [p, ...recents.filter(r => !(Math.abs(r.lng - p.lng) < 1e-5 && Math.abs(r.lat - p.lat) < 1e-5))].slice(0, 8);
+    store.set('recents2', recents);
+  }
+  const distFromHere = p => { const ref = me || (map ? [map.getCenter().lng, map.getCenter().lat] : null); return ref ? fmtDist(dist(ref, [p.lng, p.lat])) : ''; };
+  function renderHome() {
+    const body = $('homeBody');
+    if ($('q').value.trim().length >= 2) return; // results are showing
+    let h = '<div class="section" style="margin-top:4px">Favorites</div><div class="favRow">';
+    h += favs.map((f, i) => { const c = category(f.key, f.value); return `<button class="fav" data-fav="${i}"><div class="ico" style="background:${c.c}">${svg(c.g)}</div><span>${esc(f.name)}</span><small>${distFromHere(f)}</small></button>`; }).join('');
+    h += `<button class="fav" id="addFavHint"><div class="ico" style="background:var(--fill);color:var(--accent)">${svg('plus')}</div><span>Add</span></button></div>`;
+    if (recents.length) {
+      h += '<div class="section">Recents</div><div class="group">' + recents.map((r, i) => `<div class="item" data-recent="${i}"><div class="ico" style="background:var(--fill);color:var(--fg2)">${svg('clock')}</div><div class="txt"><b>${esc(r.name)}</b><small>${esc([distFromHere(r), r.sub].filter(Boolean).join(' · '))}</small></div></div>`).join('') + '</div>';
+      h += '<button class="linkBtn" id="clearRecents" style="padding-left:4px">Clear Recents</button>';
+    }
+    body.innerHTML = h;
+    body.querySelectorAll('[data-fav]').forEach(b => b.onclick = () => openPlace(favs[+b.dataset.fav], true));
+    body.querySelectorAll('[data-recent]').forEach(b => b.onclick = () => openPlace(recents[+b.dataset.recent], true));
+    $('addFavHint').onclick = () => toast('Search for a place or touch and hold the map, then tap Save.');
+    if ($('clearRecents')) $('clearRecents').onclick = () => { recents = []; store.set('recents2', recents); renderHome(); };
   }
 
+  let searchTimer, searchSeq = 0, results = [];
+  function photonToPlace(f) {
+    const p = f.properties, [lng, lat] = f.geometry.coordinates;
+    const addr = [p.housenumber && p.street ? `${p.housenumber} ${p.street}` : p.street, p.city || p.locality || p.district, p.state, p.country].filter(Boolean);
+    const name = p.name || (p.housenumber && p.street ? `${p.housenumber} ${p.street}` : p.street) || p.city || 'Place';
+    const cat = prettyCat(p.osm_value);
+    return { name, lng, lat, key: p.osm_key, value: p.osm_value, cat, address: addr.filter(a => a !== name).join(', '),
+      sub: [cat, p.city || p.state || p.country].filter(Boolean).filter(x => x !== name).join(' · '), extent: p.extent };
+  }
+  async function search(q) {
+    const seq = ++searchSeq;
+    const c = map.getCenter();
+    const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=10&lat=${c.lat.toFixed(4)}&lon=${c.lng.toFixed(4)}&location_bias_scale=0.4`;
+    try {
+      const d = await (await fetch(url)).json();
+      if (seq !== searchSeq) return;
+      results = d.features.map(photonToPlace);
+      const body = $('homeBody');
+      if (!results.length) { body.innerHTML = '<p class="muted" style="text-align:center;margin-top:30px">No results</p>'; return; }
+      body.innerHTML = '<div class="group" style="margin-top:4px">' + results.map((r, i) => { const k = category(r.key, r.value); return `<div class="item" data-res="${i}"><div class="ico" style="background:${k.c}">${svg(k.g)}</div><div class="txt"><b>${esc(r.name)}</b><small>${esc([distFromHere(r), r.cat, r.address].filter(Boolean).join(' · '))}</small></div></div>`; }).join('') + '</div>';
+      body.querySelectorAll('[data-res]').forEach(el => el.onclick = () => { $('q').blur(); openPlace(results[+el.dataset.res]); });
+    } catch { if (seq === searchSeq) $('homeBody').innerHTML = '<p class="muted" style="text-align:center;margin-top:30px">Search isn’t available right now. Check your connection.</p>'; }
+  }
+  $('q').addEventListener('focus', () => { $('cancelBtn').hidden = false; $('setBtn').hidden = true; if (sheetState !== 'full') setSheet('full'); });
+  $('q').addEventListener('input', () => {
+    const q = $('q').value.trim();
+    $('qClear').hidden = !q;
+    clearTimeout(searchTimer);
+    if (q.length < 2) { searchSeq++; renderHome(); return; }
+    searchTimer = setTimeout(() => search(q), 300);
+  });
+  $('q').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(searchTimer); const q = $('q').value.trim(); if (q.length >= 2) search(q); $('q').blur(); } });
+  $('qClear').onclick = e => { e.preventDefault(); $('q').value = ''; $('qClear').hidden = true; renderHome(); $('q').focus(); };
+  $('cancelBtn').onclick = () => { $('q').value = ''; $('qClear').hidden = true; $('q').blur(); $('cancelBtn').hidden = true; $('setBtn').hidden = false; renderHome(); setSheet('peek'); };
+  $('setBtn').onclick = () => { loadVoices(); showPanel('settings', 'full'); };
+  $('mapsBtn').onclick = () => { renderStyles(); showPanel('maps', 'half'); };
 
-  // ================= Sheets =================
-  function openSheet(id) {
-    closeSheets();
-    $(id).classList.add('show');
-    const btn = { layersSheet: 'layersBtn', favSheet: 'favBtn', setSheet: 'setBtn' }[id];
-    if (btn) $(btn).classList.add('on');
+  // ================= Place card =================
+  let selMarker = null, curPlace = null;
+  function pinEl() {
+    const d = document.createElement('div');
+    d.innerHTML = '<svg class="pin" viewBox="0 0 34 46"><path d="M17 1C8.2 1 1 8 1 16.7 1 28.8 17 45 17 45s16-16.2 16-28.3C33 8 25.8 1 17 1z" fill="#ff3b30" stroke="#fff" stroke-width="2"/><circle cx="17" cy="16.5" r="6" fill="#fff"/></svg>';
+    return d.firstChild;
   }
-  function closeSheets() {
-    document.querySelectorAll('.sheet').forEach(s => s.classList.remove('show'));
-    ['layersBtn', 'favBtn', 'setBtn'].forEach(b => $(b).classList.remove('on'));
+  function clearSelection() { if (selMarker) { selMarker.remove(); selMarker = null; } curPlace = null; }
+  const favIndex = p => favs.findIndex(f => Math.abs(f.lng - p.lng) < 1e-5 && Math.abs(f.lat - p.lat) < 1e-5);
+  function openPlace(p, fromSaved) {
+    curPlace = p;
+    if (!fromSaved) addRecent({ name: p.name, sub: p.sub, lng: p.lng, lat: p.lat, key: p.key, value: p.value, cat: p.cat, address: p.address });
+    if (selMarker) selMarker.remove();
+    if (favIndex(p) < 0) selMarker = new maplibregl.Marker({ element: pinEl(), anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(map);
+    $('cancelBtn').hidden = true; $('setBtn').hidden = false; $('q').value = ''; $('qClear').hidden = true;
+    renderPlace();
+    showPanel('place', 'peek');
+    const pad = { bottom: sheetH + 20, top: 60, left: 20, right: 20 };
+    if (p.extent) {
+      const [w, n, e, s] = p.extent;
+      map.fitBounds([[w, s], [e, n]], { padding: pad, maxZoom: 16.5, duration: 900 });
+    } else map.flyTo({ center: [p.lng, p.lat], zoom: Math.max(map.getZoom(), 15.5), padding: pad, duration: 900 });
+    if (!p.address) reverse(p);
+    estimateEta(p);
   }
-  const toggleSheet = id => $(id).classList.contains('show') ? closeSheets() : openSheet(id);
-  document.querySelectorAll('[data-close]').forEach(b => b.onclick = closeSheets);
-  $('layersBtn').onclick = () => { renderStyleOptions(); toggleSheet('layersSheet'); };
-  $('favBtn').onclick = () => toggleSheet('favSheet');
-  $('setBtn').onclick = () => { loadVoices(); toggleSheet('setSheet'); };
+  function renderPlace() {
+    const p = curPlace; if (!p) return;
+    const fi = favIndex(p);
+    $('plName').textContent = fi >= 0 ? favs[fi].name : p.name;
+    $('plSub').textContent = [p.cat, distFromHere(p) && distFromHere(p) + ' away'].filter(Boolean).join(' · ');
+    $('plSaveTxt').textContent = fi >= 0 ? 'Saved' : 'Save';
+    $('plRename').hidden = fi < 0;
+    $('plInfo').innerHTML = (p.address ? `<div class="row"><div class="k">Address</div><div class="v">${esc(p.address)}</div></div>` : '') +
+      `<div class="row"><div class="k">Coordinates</div><div class="v">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</div></div>`;
+  }
+  async function reverse(p) {
+    try {
+      const d = await (await fetch(`https://photon.komoot.io/reverse?lon=${p.lng}&lat=${p.lat}`)).json();
+      const f = d.features && d.features[0]; if (!f || curPlace !== p) return;
+      const r = photonToPlace(f);
+      p.address = [r.name !== 'Place' && r.name !== p.name ? r.name : '', r.address].filter(Boolean).join(', ');
+      if (p.name === 'Dropped Pin' && f.properties.street) p.name = f.properties.housenumber ? `${f.properties.housenumber} ${f.properties.street}` : f.properties.street;
+      renderPlace();
+    } catch {}
+  }
+  async function estimateEta(p) {
+    $('plDirTxt').textContent = 'Directions';
+    if (!me) return;
+    try { const rt = (await fetchRoutes(me, [p.lng, p.lat], false))[0]; if (curPlace === p) $('plDirTxt').textContent = fmtTime(rt.duration); } catch {}
+  }
+  $('plDir').onclick = () => curPlace && planRoute(curPlace);
+  $('plSave').onclick = () => {
+    const p = curPlace; if (!p) return;
+    const fi = favIndex(p);
+    if (fi >= 0) { favs.splice(fi, 1); toast('Removed from Favorites'); selMarker = selMarker || new maplibregl.Marker({ element: pinEl(), anchor: 'bottom' }).setLngLat([p.lng, p.lat]).addTo(map); }
+    else { favs.push({ name: p.name, lng: p.lng, lat: p.lat, key: p.key, value: p.value, cat: p.cat, sub: p.sub, address: p.address }); toast('Added to Favorites'); if (selMarker) { selMarker.remove(); selMarker = null; } }
+    saveFavs(); drawFavs(); renderPlace();
+  };
+  $('plRename').onclick = () => {
+    const fi = favIndex(curPlace); if (fi < 0) return;
+    const n = prompt('Name', favs[fi].name);
+    if (n && n.trim()) { favs[fi].name = n.trim(); saveFavs(); drawFavs(); renderPlace(); }
+  };
+
+  // Favorite markers on the map
+  let favMarkers = [];
+  function drawFavs() {
+    favMarkers.forEach(m => m.remove());
+    favMarkers = favs.map(f => {
+      const el = document.createElement('div'); el.className = 'favPin'; el.innerHTML = svg('star');
+      el.onclick = e => { e.stopPropagation(); openPlace(f, true); };
+      return new maplibregl.Marker({ element: el }).setLngLat([f.lng, f.lat]).addTo(map);
+    });
+    if (panel === 'home') renderHome();
+  }
+
+  // Tapping the map: points of interest, alternate routes, or closing the card
+  function onMapClick(e) {
+    if (longPressed) { longPressed = false; return; }
+    const alt = map.queryRenderedFeatures(e.point, { layers: ['fm-alt'] });
+    if (alt.length && !nav) { selectRoute(alt[0].properties.idx); return; }
+    if (nav) return;
+    const box = [[e.point.x - 10, e.point.y - 10], [e.point.x + 10, e.point.y + 10]];
+    const f = map.queryRenderedFeatures(box).find(f => f.layer.type === 'symbol' && f.properties.name && /^(poi|airport|label_|water_name)/.test(f.layer.id));
+    if (f) {
+      const c = f.geometry.type === 'Point' ? f.geometry.coordinates : [e.lngLat.lng, e.lngLat.lat];
+      const key = /^label_/.test(f.layer.id) ? 'place' : (f.properties.class || ''), val = f.properties.subclass || f.properties.class || '';
+      openPlace({ name: f.properties['name:en'] || f.properties.name, lng: c[0], lat: c[1], key, value: val, cat: prettyCat(val), sub: prettyCat(val), address: '' });
+      return;
+    }
+    if (panel === 'place') backHome();
+    else if (panel === 'home' && sheetState !== 'peek') { $('q').blur(); setSheet('peek'); }
+  }
+  let longPressed = false;
+  function setupLongPress() {
+    let timer = null, start = null;
+    const cancel = () => { clearTimeout(timer); timer = null; };
+    map.on('touchstart', e => {
+      if (e.originalEvent.touches.length !== 1 || nav) return cancel();
+      start = e.point; cancel();
+      timer = setTimeout(() => { longPressed = true; dropPin(e.lngLat); setTimeout(() => longPressed = false, 600); }, 550);
+    });
+    map.on('touchmove', e => { if (start && Math.hypot(e.point.x - start.x, e.point.y - start.y) > 10) cancel(); });
+    map.on('touchend', cancel); map.on('touchcancel', cancel); map.on('zoomstart', cancel);
+    map.on('contextmenu', e => { if (!nav) dropPin(e.lngLat); });
+  }
+  function dropPin(ll) {
+    navigator.vibrate?.(10);
+    openPlace({ name: 'Dropped Pin', lng: ll.lng, lat: ll.lat, key: '', value: '', cat: '', sub: '', address: '' });
+  }
+
+  // ================= Map styles =================
+  function tileFor(z) {
+    const c = map.getCenter(), n = 2 ** z, x = Math.floor((c.lng + 180) / 360 * n), r = rad(c.lat);
+    const y = Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * n);
+    return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+  }
+  function renderStyles() {
+    const z = Math.round(Math.min(16, Math.max(4, map.getZoom())));
+    const img = tileFor(z);
+    const opts = [['standard', 'Explore', 'pv-std', ''], ['satellite', 'Satellite', '', img], ['hybrid', 'Hybrid', '', img]];
+    $('styles').innerHTML = opts.map(([k, n, cls, im]) => `<button class="styleOpt ${S.style === k ? 'on' : ''}" data-s="${k}"><div class="pv ${cls}" style="${im ? `background-image:url('${im}')` : ''}"></div>${n}</button>`).join('');
+    document.querySelectorAll('.styleOpt').forEach(b => b.onclick = () => { S.style = b.dataset.s; save(); applyMapLook(); });
+  }
+
+  // ================= Location =================
+  let me = null, meAcc = 999, meMarker = null, watchId = null, follow = 0, gpsHeading = null, compassHeading = null, speed = 0;
+  function meEl() { const d = document.createElement('div'); d.className = 'me'; d.innerHTML = '<div class="halo"></div><div class="beam"></div><div class="core"></div>'; return d; }
+  function updateLocBtn() {
+    const ic = $('locIcon');
+    ic.setAttribute('fill', follow ? 'currentColor' : 'none');
+    ic.innerHTML = follow === 2
+      ? '<path d="M12 2 5 21l7-4 7 4z"/>'
+      : '<path d="M20.5 3.5 3.5 10.6l7.3 2.6 2.6 7.3z"/>';
+  }
+  function startLocating(mode) {
+    if (!navigator.geolocation) { toast('Location isn’t available on this device.'); return; }
+    follow = mode; updateLocBtn();
+    if (watchId === null) {
+      watchId = navigator.geolocation.watchPosition(onPos, err => {
+        toast(err.code === 1 ? 'Allow location in Settings › Privacy & Security › Location Services › Safari Websites.' : 'Can’t find your location right now.');
+        follow = 0; updateLocBtn();
+        if (err.code === 1) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+      }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
+    } else if (me && follow) map.easeTo({ center: me, zoom: Math.max(map.getZoom(), 15.5), duration: 600 });
+  }
+  function onPos(pos) {
+    const c = pos.coords, first = !me;
+    me = [c.longitude, c.latitude]; meAcc = c.accuracy; speed = c.speed || 0;
+    gpsHeading = (c.heading != null && !isNaN(c.heading) && speed > 1) ? c.heading : null;
+    if (!meMarker) meMarker = new maplibregl.Marker({ element: meEl(), rotationAlignment: 'map', pitchAlignment: 'viewport' }).setLngLat(me).addTo(map);
+    else meMarker.setLngLat(me);
+    updateBeam();
+    if (nav) navUpdate();
+    else if (follow) {
+      const opts = { center: me, duration: first ? 1200 : 900, easing: t => t };
+      if (first) opts.zoom = Math.max(map.getZoom(), 15.5);
+      if (follow === 2 && headingNow() != null) opts.bearing = headingNow();
+      first ? map.flyTo(opts) : map.easeTo(opts);
+    }
+    if (first && pendingRoute) { const p = pendingRoute; pendingRoute = null; planRoute(p); }
+    if (first && curPlace && panel === 'place') { renderPlace(); estimateEta(curPlace); }
+  }
+  const headingNow = () => gpsHeading ?? compassHeading;
+  function updateBeam() {
+    if (!meMarker) return;
+    const h = headingNow(), beam = meMarker.getElement().querySelector('.beam');
+    beam.style.display = h == null ? 'none' : 'block';
+    if (h != null) meMarker.setRotation(h);
+  }
+  let compassOn = false, lastRot = 0;
+  function enableCompass() {
+    if (compassOn) return;
+    const handler = e => {
+      let h = null;
+      if (typeof e.webkitCompassHeading === 'number') h = e.webkitCompassHeading;
+      else if (e.absolute && e.alpha != null) h = 360 - e.alpha;
+      if (h == null) return;
+      compassHeading = h;
+      const now = performance.now();
+      if (now - lastRot < 100) return;
+      lastRot = now; updateBeam();
+      if (follow === 2 && !nav && gpsHeading == null && Math.abs(((map.getBearing() - h + 540) % 360) - 180) > 3) map.easeTo({ bearing: h, duration: 100, easing: t => t });
+    };
+    const add = () => { compassOn = true; addEventListener('deviceorientationabsolute', handler); addEventListener('deviceorientation', handler); };
+    if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission().then(s => { if (s === 'granted') add(); }).catch(() => {});
+    } else add();
+  }
+  $('locBtn').onclick = () => {
+    enableCompass();
+    if (nav) { follow = 1; $('recenter').hidden = true; navUpdate(true); return; }
+    if (!me || follow === 0) startLocating(1);
+    else if (follow === 1) { follow = 2; updateLocBtn(); if (headingNow() != null) map.easeTo({ bearing: headingNow(), duration: 400 }); }
+    else { follow = 1; updateLocBtn(); map.easeTo({ bearing: 0, duration: 400 }); }
+  };
+
+  // ================= Routing =================
+  let routes = [], selRoute = 0, routeDest = null, pendingRoute = null;
+  document.querySelectorAll('#modes button').forEach(b => {
+    b.classList.toggle('on', b.dataset.mode === S.mode);
+    b.onclick = () => { S.mode = b.dataset.mode; save(); document.querySelectorAll('#modes button').forEach(x => x.classList.toggle('on', x === b)); if (routeDest) planRoute(routeDest, true); };
+  });
+  async function fetchRoutes(from, to, alternatives = true) {
+    const profile = { car: 'routed-car', foot: 'routed-foot', bike: 'routed-bike' }[S.mode];
+    const url = `https://routing.openstreetmap.de/${profile}/route/v1/driving/${from[0]},${from[1]};${to[0]},${to[1]}?overview=full&geometries=geojson&steps=true&alternatives=${alternatives ? 'true' : 'false'}`;
+    const d = await (await fetch(url)).json();
+    if (!d.routes || !d.routes.length) throw new Error('no route');
+    return d.routes;
+  }
+  function drawRoutes() {
+    const features = routes.map((r, i) => ({ type: 'Feature', properties: { idx: i, sel: i === selRoute }, geometry: r.geometry }));
+    features.sort((a, b) => a.properties.sel - b.properties.sel);
+    map.getSource('fm-routes')?.setData({ type: 'FeatureCollection', features });
+  }
+  function clearRoute() { routes = []; routeDest = null; drawRoutes(); }
+  async function planRoute(p, keep) {
+    if (!me) { pendingRoute = p; toast('Finding your location…'); startLocating(0); return; }
+    routeDest = p;
+    $('rtTo').textContent = p.name;
+    $('rtList').innerHTML = '<p class="muted" style="text-align:center;margin-top:20px">Finding routes…</p>';
+    if (panel !== 'route') showPanel('route', 'half');
+    try {
+      routes = await fetchRoutes(me, [p.lng, p.lat]);
+      selRoute = 0; drawRoutes(); renderRoutes();
+      if (!keep) fitRoute();
+    } catch { $('rtList').innerHTML = '<p class="muted" style="text-align:center;margin-top:20px">No route found. Try a different way of getting there.</p>'; routes = []; drawRoutes(); }
+  }
+  function fitRoute() {
+    const c = routes[selRoute].geometry.coordinates;
+    const b = c.reduce((bb, p) => bb.extend(p), new maplibregl.LngLatBounds(c[0], c[0]));
+    map.fitBounds(b, { padding: { top: 90, bottom: sheetH + 30, left: 40, right: 60 }, duration: 900, bearing: 0, pitch: 0 });
+  }
+  function renderRoutes() {
+    const fastest = Math.min(...routes.map(r => r.duration));
+    $('rtList').innerHTML = routes.map((r, i) => `<div class="routeOpt ${i === selRoute ? 'on' : ''}" data-r="${i}">
+      <div><div class="t">${fmtTime(r.duration)}</div><div class="d">${fmtDist(r.distance)} · ${r.duration === fastest ? 'Fastest' : 'Arrive ' + clock(r.duration)}</div></div>
+      ${i === selRoute ? '<button class="goBtn" id="goBtn">GO</button>' : ''}</div>`).join('');
+    $('rtList').querySelectorAll('[data-r]').forEach(el => el.onclick = e => { if (e.target.id === 'goBtn') return; selectRoute(+el.dataset.r); });
+    $('goBtn').onclick = startNav;
+  }
+  function selectRoute(i) { selRoute = +i; drawRoutes(); renderRoutes(); }
 
   // ================= Voice =================
   let voices = [];
   function loadVoices() {
-    if (!('speechSynthesis' in window)) { $('voiceSel').innerHTML = '<option>Voice not supported on this device</option>'; return; }
+    if (!('speechSynthesis' in window)) { $('voiceSel').innerHTML = '<option>Voice isn’t supported here</option>'; return; }
     voices = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang));
-    $('voiceSel').innerHTML = '<option value="">Default voice</option>' +
-      voices.map(v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === S.voiceURI ? 'selected' : ''}>${esc(v.name)} (${esc(v.lang)})</option>`).join('');
+    $('voiceSel').innerHTML = '<option value="">Default voice</option>' + voices.map(v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === S.voiceURI ? 'selected' : ''}>${esc(v.name)}</option>`).join('');
   }
   if ('speechSynthesis' in window) speechSynthesis.onvoiceschanged = loadVoices;
   $('voiceSel').onchange = e => { S.voiceURI = e.target.value; save(); };
   function speak(text, force) {
     if ((!S.voice && !force) || !('speechSynthesis' in window) || !text) return;
     speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    const v = voices.find(v => v.voiceURI === S.voiceURI);
+    const u = new SpeechSynthesisUtterance(text), v = voices.find(v => v.voiceURI === S.voiceURI);
     if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-US';
     speechSynthesis.speak(u);
   }
-  $('testVoice').onclick = () => speak('In 500 feet, turn right onto Main Street', true);
-  $('muteBtn').onclick = () => { S.voice = !S.voice; save(); applyLook(); if (!S.voice) speechSynthesis?.cancel(); };
+  $('testVoice').onclick = () => speak('In 500 feet, turn right onto Main Street.', true);
+  $('muteBtn').onclick = () => { S.voice = !S.voice; save(); applyUI(); if (!S.voice) window.speechSynthesis?.cancel(); };
 
-  // ================= Units =================
-  const imperial = () => S.units === 'mi' || (S.units === 'auto' && /^en-(US|LR|MM)/.test(navigator.language));
-  function fmtDist(m, spoken) {
-    if (imperial()) {
-      const ft = m * 3.281;
-      if (ft < 1000) { const r = Math.max(50, Math.round(ft / 50) * 50); return spoken ? `${r} feet` : `${r} ft`; }
-      const mi = m / 1609.34, v = mi < 10 ? mi.toFixed(1) : Math.round(mi);
-      return spoken ? `${v} ${v == 1 ? 'mile' : 'miles'}` : `${v} mi`;
-    }
-    if (m < 1000) { const r = Math.max(10, Math.round(m / (m < 300 ? 10 : 50)) * (m < 300 ? 10 : 50)); return spoken ? `${r} meters` : `${r} m`; }
-    const km = m / 1000, v = km < 10 ? km.toFixed(1) : Math.round(km);
-    return spoken ? `${v} kilometers` : `${v} km`;
-  }
-  const fmtTime = s => { const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60); return h ? `${h} h ${m} min` : `${Math.max(1, m)} min`; };
-
-  // ================= Live location =================
-  let me = null, meAcc = 999, meMarker = null, meCircle = null, watchId = null, follow = false;
-  function startLocating(center) {
-    if (!navigator.geolocation) { toast('Location is not available on this device'); return; }
-    follow = center;
-    if (watchId !== null) { if (me && center) map.flyTo(me, Math.max(map.getZoom(), nav ? 17 : 16)); return; }
-    $('locBtn').classList.add('on');
-    watchId = navigator.geolocation.watchPosition(onPosition, err => {
-      toast(err.code === 1 ? 'Location permission denied. Allow it in Settings › Privacy › Location Services › Safari Websites.' : 'Could not get your location');
-      stopLocating();
-    }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
-  }
-  function onPosition(pos) {
-    const ll = L.latLng(pos.coords.latitude, pos.coords.longitude);
-    const first = !me; me = ll; meAcc = pos.coords.accuracy;
-    if (!meMarker) {
-      meMarker = L.marker(ll, { icon: L.divIcon({ className: '', html: '<div class="me"><div class="cone"></div><div class="me-dot"></div></div>', iconSize: [22, 22], iconAnchor: [11, 11] }), zIndexOffset: 1000, interactive: false }).addTo(map);
-      meCircle = L.circle(ll, { radius: meAcc, color: '#2b7bff', weight: 1, fillOpacity: .1, interactive: false }).addTo(map);
-    } else { meMarker.setLatLng(ll); meCircle.setLatLng(ll).setRadius(meAcc); }
-    const cone = meMarker.getElement()?.querySelector('.cone'), h = pos.coords.heading;
-    if (cone) { const ok = h !== null && !isNaN(h) && (pos.coords.speed ?? 1) > 0.5; cone.style.display = ok ? 'block' : 'none'; if (ok) cone.style.transform = `rotate(${h}deg)`; }
-    if (first && follow) map.flyTo(ll, nav ? 17 : 16);
-    else if (follow) map.panTo(ll, { animate: true, duration: .5 });
-    if (first && pendingRoute) { const p = pendingRoute; pendingRoute = null; routeTo(p.ll, p.name); }
-    if (nav) navUpdate();
-  }
-  function stopLocating() {
-    if (watchId !== null) navigator.geolocation.clearWatch(watchId);
-    watchId = null; follow = false; $('locBtn').classList.remove('on');
-  }
-  map.on('dragstart', () => { follow = false; });
-  $('locBtn').onclick = () => startLocating(true);
-
-  // ================= Place popups =================
-  let tempMarker = null;
-  const pinIcon = L.divIcon({ className: '', iconSize: [30, 40], iconAnchor: [15, 38], popupAnchor: [0, -34],
-    html: '<svg width="30" height="40" viewBox="0 0 30 40"><path d="M15 1C7.3 1 1 7.2 1 14.8 1 25.5 15 39 15 39s14-13.5 14-24.2C29 7.2 22.7 1 15 1z" fill="#e5383b" stroke="#fff" stroke-width="2"/><circle cx="15" cy="15" r="5" fill="#fff"/></svg>' });
-  function placePopup(ll, name, sub, opts = {}) {
-    const div = document.createElement('div');
-    div.innerHTML = `<div class="pop-title">${esc(name)}</div>
-      <div class="pop-sub">${esc(sub || `${ll.lat.toFixed(5)}, ${ll.lng.toFixed(5)}`)}</div>
-      <div class="pop-btns"><button data-a="route">Directions</button>
-        ${opts.favId ? '<button class="alt" data-a="unsave">Remove ★</button>' : '<button class="alt" data-a="save">Save ★</button>'}</div>`;
-    div.onclick = e => {
-      const a = e.target.dataset.a; if (!a) return;
-      map.closePopup();
-      if (a === 'route') routeTo(ll, name);
-      if (a === 'save') saveFav(ll, name, sub);
-      if (a === 'unsave') removeFav(opts.favId);
-    };
-    return div;
-  }
-  function showTemp(ll, name, sub) {
-    if (tempMarker) map.removeLayer(tempMarker);
-    tempMarker = L.marker(ll, { icon: pinIcon }).addTo(map).bindPopup(placePopup(ll, name, sub)).openPopup();
-    return tempMarker;
-  }
-  map.on('click', async e => {
-    if (document.querySelector('.sheet.show')) { closeSheets(); return; }
-    if ($('results').classList.contains('show')) { $('results').classList.remove('show'); return; }
-    if (nav) return;
-    const ll = e.latlng;
-    const m = showTemp(ll, 'Dropped pin', 'Looking up address…');
-    try {
-      const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${ll.lat}&lon=${ll.lng}&zoom=18`, { headers: { 'Accept-Language': navigator.language } });
-      const d = await r.json();
-      if (m !== tempMarker) return;
-      const a = d.address || {};
-      const name = d.name || (a.road ? `${a.house_number ? a.house_number + ' ' : ''}${a.road}` : '') || 'Dropped pin';
-      m.setPopupContent(placePopup(ll, name, d.display_name));
-    } catch { if (m === tempMarker) m.setPopupContent(placePopup(ll, 'Dropped pin')); }
-  });
-
-  // ================= Search =================
-  let searchTimer, searchSeq = 0;
-  async function search(q, show) {
-    const seq = ++searchSeq, b = map.getBounds();
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&q=${encodeURIComponent(q)}&viewbox=${b.getWest()},${b.getNorth()},${b.getEast()},${b.getSouth()}`;
-    try {
-      const list = await (await fetch(url, { headers: { 'Accept-Language': navigator.language } })).json();
-      if (seq !== searchSeq) return;
-      const box = $('results');
-      box.innerHTML = list.length ? '' : '<div class="row"><small>No results</small></div>';
-      list.forEach(p => {
-        const name = p.name || p.display_name.split(',')[0];
-        const row = document.createElement('div');
-        row.className = 'row';
-        row.innerHTML = `<b>${esc(name)}</b><small>${esc(p.display_name)}</small>`;
-        row.onclick = () => {
-          box.classList.remove('show'); $('q').blur();
-          const ll = L.latLng(+p.lat, +p.lon);
-          if (p.boundingbox) { const [s, n, w, e] = p.boundingbox.map(Number); map.flyToBounds([[s, w], [n, e]], { maxZoom: 17 }); }
-          else map.flyTo(ll, 16);
-          showTemp(ll, name, p.display_name);
-        };
-        box.appendChild(row);
-      });
-      box.classList.add('show');
-    } catch { if (show) toast('Search failed. Check your connection.'); }
-  }
-  $('q').addEventListener('input', () => {
-    clearTimeout(searchTimer);
-    const q = $('q').value.trim();
-    if (q.length < 3) { $('results').classList.remove('show'); return; }
-    searchTimer = setTimeout(() => search(q, false), 700);
-  });
-  $('searchForm').onsubmit = e => { e.preventDefault(); clearTimeout(searchTimer); const q = $('q').value.trim(); if (q) search(q, true); };
-  $('clearQ').onclick = () => { $('q').value = ''; $('results').classList.remove('show'); if (tempMarker) { map.removeLayer(tempMarker); tempMarker = null; } };
-
-  // ================= Favorites =================
-  let favs = store.get('favorites', []);
-  const favLayer = L.layerGroup().addTo(map);
-  const favIcon = () => L.divIcon({ className: '', iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -12],
-    html: '<div style="width:28px;height:28px;border-radius:50%;background:#f5a623;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);display:grid;place-items:center;color:#fff;font-size:14px">★</div>' });
-  function drawFavs() {
-    favLayer.clearLayers();
-    favs.forEach(f => { const ll = L.latLng(f.lat, f.lng); L.marker(ll, { icon: favIcon() }).bindPopup(() => placePopup(ll, f.name, f.sub, { favId: f.id })).addTo(favLayer); });
-    const list = $('favList');
-    if (!favs.length) { list.innerHTML = '<div class="empty">No favorites yet. Tap the map or search for a place, then tap “Save ★”.</div>'; return; }
-    list.innerHTML = '';
-    favs.forEach(f => {
-      const el = document.createElement('div');
-      el.className = 'fav';
-      el.innerHTML = `<div class="row"><b>${esc(f.name)}</b><small>${esc(f.sub || '')}</small></div>
-        <button data-a="go">Go</button><button data-a="rename">Rename</button><button data-a="del">Delete</button>`;
-      el.querySelector('.row').onclick = () => { closeSheets(); map.flyTo([f.lat, f.lng], 16); };
-      el.querySelector('[data-a=go]').onclick = () => routeTo(L.latLng(f.lat, f.lng), f.name);
-      el.querySelector('[data-a=rename]').onclick = () => { const n = prompt('Name this place', f.name); if (n && n.trim()) { f.name = n.trim(); store.set('favorites', favs); drawFavs(); } };
-      el.querySelector('[data-a=del]').onclick = () => { if (confirm(`Delete “${f.name}”?`)) removeFav(f.id); };
-      list.appendChild(el);
-    });
-  }
-  function saveFav(ll, name, sub) {
-    const n = prompt('Name this place', name === 'Dropped pin' ? '' : name);
-    if (n === null) return;
-    favs.push({ id: Date.now().toString(36), name: n.trim() || name, sub: sub || '', lat: ll.lat, lng: ll.lng });
-    store.set('favorites', favs);
-    if (tempMarker) { map.removeLayer(tempMarker); tempMarker = null; }
-    drawFavs(); toast('Saved to favorites');
-  }
-  function removeFav(id) { favs = favs.filter(f => f.id !== id); store.set('favorites', favs); drawFavs(); }
-
-  // ================= Routing =================
-  let routeLine = null, routeCasing = null, routeDest = null, pendingRoute = null, currentRoute = null;
-  document.querySelectorAll('#modes button').forEach(b => {
-    b.classList.toggle('on', b.dataset.mode === S.mode);
-    b.onclick = () => {
-      S.mode = b.dataset.mode; save();
-      document.querySelectorAll('#modes button').forEach(x => x.classList.toggle('on', x === b));
-      if (routeDest) routeTo(routeDest.ll, routeDest.name, true);
-    };
-  });
-  async function fetchRoute(from, to) {
-    const profile = { car: 'routed-car', foot: 'routed-foot', bike: 'routed-bike' }[S.mode];
-    const url = `https://routing.openstreetmap.de/${profile}/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson&steps=true`;
-    const d = await (await fetch(url)).json();
-    if (!d.routes || !d.routes.length) throw new Error('no route');
-    return d.routes[0];
-  }
-  function drawRoute(rt) {
-    if (routeLine) { map.removeLayer(routeLine); map.removeLayer(routeCasing); }
-    routeCasing = L.geoJSON(rt.geometry, { interactive: false, style: { color: '#0b3d91', weight: 10, opacity: .5 } }).addTo(map);
-    routeLine = L.geoJSON(rt.geometry, { interactive: false, style: { color: '#2b7bff', weight: 6, opacity: .95 } }).addTo(map);
-  }
-  async function routeTo(ll, name, keepView) {
-    closeSheets();
-    if (!me) { pendingRoute = { ll, name }; toast('Finding your location first…'); startLocating(false); return; }
-    routeDest = { ll, name };
-    $('routeBar').classList.add('show');
-    $('routeStats').textContent = 'Routing…';
-    $('routeTo').textContent = 'To ' + name;
-    $('goBtn').disabled = true;
-    try {
-      const rt = await fetchRoute(me, ll);
-      currentRoute = rt; drawRoute(rt);
-      $('routeStats').textContent = `${fmtTime(rt.duration)} · ${fmtDist(rt.distance)}`;
-      $('goBtn').disabled = false;
-      if (!keepView) { follow = false; map.fitBounds(routeLine.getBounds(), { paddingTopLeft: [30, 90], paddingBottomRight: [30, 160] }); }
-    } catch { $('routeStats').textContent = 'No route found'; currentRoute = null; }
-  }
-  function clearRoute() {
-    if (routeLine) { map.removeLayer(routeLine); map.removeLayer(routeCasing); }
-    routeLine = routeCasing = routeDest = currentRoute = null;
-    $('routeBar').classList.remove('show');
-  }
-  $('routeClose').onclick = clearRoute;
-
-  // ================= Turn-by-turn navigation =================
+  // ================= Turn-by-turn =================
   const ordinal = n => ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'][n - 1] || `${n}th`;
-  const compass = b => ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'][Math.round(((b % 360) + 360) % 360 / 45) % 8];
+  const compassWord = b => ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'][Math.round(((b % 360) + 360) % 360 / 45) % 8];
   function instruction(step) {
     const m = step.maneuver, mod = m.modifier || 'straight';
     const road = step.name || step.ref || '', onto = road ? ` onto ${road}` : '';
     const side = mod.includes('left') ? 'left' : mod.includes('right') ? 'right' : '';
     switch (m.type) {
-      case 'depart': return `Head ${compass(m.bearing_after || 0)}${road ? ' on ' + road : ''}`;
+      case 'depart': return `Head ${compassWord(m.bearing_after || 0)}${road ? ' on ' + road : ''}`;
       case 'arrive': return side ? `You have arrived. Your destination is on the ${side}` : 'You have arrived at your destination';
       case 'roundabout': case 'rotary': return m.exit ? `At the roundabout, take the ${ordinal(m.exit)} exit${onto}` : `Enter the roundabout${onto}`;
       case 'roundabout turn': return `At the roundabout, turn ${mod}${onto}`;
@@ -612,99 +983,96 @@
         return `Turn ${mod}${onto}`;
     }
   }
-  const ARROW_ROT = { 'straight': 0, 'slight right': 45, 'right': 90, 'sharp right': 135, 'uturn': 180, 'sharp left': -135, 'left': -90, 'slight left': -45 };
-  const arrowSVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 4 11h5v11h6V11h5z"/></svg>';
-  function arrowFor(step) {
-    if (!step) return arrowSVG;
-    if (step.type === 'arrive') return '🏁';
-    if (/roundabout|rotary/.test(step.type)) return '⟳';
-    const rot = ARROW_ROT[step.mod] ?? 0;
-    return arrowSVG.replace('<svg ', `<svg style="transform:rotate(${rot}deg)" `);
+  const ROT = { 'straight': 0, 'slight right': 40, 'right': 90, 'sharp right': 135, 'uturn': 180, 'sharp left': -135, 'left': -90, 'slight left': -40 };
+  function arrowFor(st) {
+    if (!st) return '';
+    if (st.type === 'arrive') return '<svg viewBox="0 0 24 24" fill="#fff"><path d="M5 2h2v20H5zm3 1h11l-2.5 4L19 11H8z"/></svg>';
+    if (/roundabout|rotary/.test(st.type)) return '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"><circle cx="12" cy="10" r="4.5"/><path d="M12 14.5V22M16 7l3-3M19 4v4M19 4h-4"/></svg>';
+    if (st.mod === 'uturn') return '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21V9a4 4 0 0 0-8 0v4M4.5 10 8 13.5 11.5 10"/></svg>';
+    const r = ROT[st.mod] ?? 0;
+    return `<svg viewBox="0 0 24 24" style="transform:rotate(${r}deg)"><path d="M12 2 4.5 10.5h5V22h5V10.5h5z" fill="#fff"/></svg>`;
   }
-
-  let nav = null, wakeLock = null;
   function buildSteps(rt) {
     return rt.legs[0].steps.map(s => ({ text: instruction(s), type: s.maneuver.type, mod: s.maneuver.modifier || 'straight',
-      loc: L.latLng(s.maneuver.location[1], s.maneuver.location[0]), dist: s.distance, dur: s.duration }))
-      .filter(s => s.text)
-      .map(s => {
-        // "In 500 feet, ..." wording
+      loc: s.maneuver.location, dist: s.distance, dur: s.duration })).filter(s => s.text).map(s => {
         const side = s.mod.includes('left') ? 'left' : s.mod.includes('right') ? 'right' : '';
-        s.pre = s.type === 'arrive' ? (side ? `your destination will be on the ${side}` : 'you will arrive at your destination')
-          : s.text.charAt(0).toLowerCase() + s.text.slice(1);
+        s.pre = s.type === 'arrive' ? (side ? `your destination will be on the ${side}` : 'you will arrive at your destination') : s.text.charAt(0).toLowerCase() + s.text.slice(1);
         return s;
       });
   }
-  const thresholds = () => ({ car: { far: 400, near: 80 }, bike: { far: 200, near: 30 }, foot: { far: 100, near: 20 } })[S.mode];
+  const TH = () => ({ car: { far: 400, near: 80 }, bike: { far: 200, near: 30 }, foot: { far: 100, near: 20 } })[S.mode];
+  let nav = null, wakeLock = null;
 
   function startNav() {
-    if (!currentRoute || !me) return;
-    const steps = buildSteps(currentRoute);
-    nav = { steps, next: Math.min(1, steps.length - 1), minD: Infinity, said: {}, coords: currentRoute.geometry.coordinates,
-      off: 0, lastReroute: 0, rerouting: false };
-    $('routeBar').classList.remove('show'); $('searchWrap').style.display = 'none';
-    $('navBanner').classList.add('show'); $('navBar').classList.add('show');
-    follow = true; map.setView(me, 17);
-    startLocating(true);
-    requestWake();
-    const first = steps[0], nxt = steps[nav.next];
-    const d = me.distanceTo(nxt.loc);
-    // Speaking here, inside the tap, also unlocks speech on iPhone.
-    speak(`${first.text}. Then, in ${fmtDist(d, true)}, ${nxt.pre}`);
-    if (d < thresholds().far * 1.5) nav.said[nav.next + 'f'] = true;
-    renderNav();
+    const rt = routes[selRoute]; if (!rt || !me) return;
+    const steps = buildSteps(rt);
+    nav = { steps, next: Math.min(1, steps.length - 1), minD: Infinity, said: {}, coords: rt.geometry.coordinates, off: 0, lastReroute: 0, rerouting: false, seg: 1 };
+    routes = [rt]; selRoute = 0; drawRoutes();
+    setSheet('hidden'); clearSelection();
+    $('controls').hidden = true;
+    $('navBanner').hidden = false; $('navBar').hidden = false; $('navThen').hidden = true;
+    follow = 1; enableCompass(); requestWake();
+    const first = steps[0], nx = steps[nav.next], d = dist(me, nx.loc);
+    speak(`${first.text}. Then, in ${sayDist(d)}, ${nx.pre}`);
+    if (d < TH().far * 1.5) nav.said[nav.next + 'f'] = true;
+    renderNav(); navUpdate(true);
   }
   function endNav(msg) {
-    nav = null;
-    $('navBanner').classList.remove('show'); $('navBar').classList.remove('show'); $('searchWrap').style.display = '';
-    releaseWake(); clearRoute();
+    nav = null; releaseWake();
+    $('navBanner').hidden = true; $('navBar').hidden = true; $('navThen').hidden = true; $('recenter').hidden = true; $('controls').hidden = false;
+    clearRoute();
+    map.easeTo({ pitch: 0, bearing: 0, padding: { top: 0, bottom: 0, left: 0, right: 0 }, zoom: 15, duration: 800 });
+    follow = 1; updateLocBtn();
+    showPanel('home', 'peek'); renderHome();
     if (msg) toast(msg);
   }
-  $('goBtn').onclick = startNav;
-  $('endBtn').onclick = () => { speechSynthesis?.cancel(); endNav(); };
+  $('endBtn').onclick = () => { window.speechSynthesis?.cancel(); endNav(); };
+  $('recenter').onclick = () => { follow = 1; $('recenter').hidden = true; navUpdate(true); };
 
-  // Distance in meters from point p to the route line
-  function distToRoute(p) {
-    const k = Math.cos(p.lat * Math.PI / 180) * 111320, kl = 110540;
-    let best = Infinity;
-    const c = nav.coords;
+  function nearestOnRoute(p) {
+    const k = Math.cos(rad(p[1])) * 111320, kl = 110540, c = nav.coords;
+    let best = Infinity, bi = 1;
     for (let i = 1; i < c.length; i++) {
-      const ax = (c[i - 1][0] - p.lng) * k, ay = (c[i - 1][1] - p.lat) * kl, bx = (c[i][0] - p.lng) * k, by = (c[i][1] - p.lat) * kl;
+      const ax = (c[i - 1][0] - p[0]) * k, ay = (c[i - 1][1] - p[1]) * kl, bx = (c[i][0] - p[0]) * k, by = (c[i][1] - p[1]) * kl;
       const dx = bx - ax, dy = by - ay, len = dx * dx + dy * dy;
       const t = len ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len)) : 0;
       const d = Math.hypot(ax + t * dx, ay + t * dy);
-      if (d < best) best = d;
+      if (d < best) { best = d; bi = i; }
     }
-    return best;
+    return { d: best, i: bi };
   }
-
-  function navUpdate() {
-    if (!nav || !me || nav.rerouting) return;
-    const T = thresholds();
-    let st = nav.steps[nav.next];
-    let d = me.distanceTo(st.loc);
+  function navCamera(force) {
+    if (!nav || !follow) return;
+    const near = nearestOnRoute(me);
+    const routeB = bearing(nav.coords[near.i - 1], nav.coords[near.i]);
+    // Hide the part of the route already driven
+    if (near.d < 60) map.getSource('fm-routes')?.setData({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: { idx: 0, sel: true },
+      geometry: { type: 'LineString', coordinates: [me, ...nav.coords.slice(near.i)] } }] });
+    const b = gpsHeading ?? (near.d < 40 ? routeB : (compassHeading ?? routeB));
+    const zoom = S.mode === 'car' ? (speed > 20 ? 15.5 : 16.5) : 17.5;
+    map.easeTo({ center: me, bearing: b, pitch: 55, zoom, duration: force ? 700 : 950, easing: t => t,
+      padding: { top: Math.round(innerHeight * .36), bottom: 90, left: 0, right: 0 } });
+  }
+  function navUpdate(force) {
+    if (!nav || !me) return;
+    navCamera(force);
+    if (nav.rerouting) return;
+    const T = TH();
+    let st = nav.steps[nav.next], d = dist(me, st.loc);
     nav.minD = Math.min(nav.minD, d);
-
-    // Reached (or just passed) the maneuver?
     if (d < (st.type === 'arrive' ? 30 : 20) || (nav.minD < 45 && d > nav.minD + 25)) {
       if (st.type === 'arrive' || nav.next >= nav.steps.length - 1) { speak(nav.steps[nav.steps.length - 1].text); endNav('You have arrived'); return; }
       nav.next++; nav.minD = Infinity;
-      st = nav.steps[nav.next]; d = me.distanceTo(st.loc);
-      if (d > T.near * 2) { speak(`In ${fmtDist(d, true)}, ${st.pre}`); if (d < T.far * 1.5) nav.said[nav.next + 'f'] = true; }
+      st = nav.steps[nav.next]; d = dist(me, st.loc);
+      if (d > T.near * 2) { speak(`In ${sayDist(d)}, ${st.pre}`); if (d < T.far * 1.5) nav.said[nav.next + 'f'] = true; }
     }
-
-    // Spoken prompts
-    if (!nav.said[nav.next + 'f'] && d < T.far && d > T.near * 2) {
-      nav.said[nav.next + 'f'] = true; speak(`In ${fmtDist(d, true)}, ${st.pre}`);
-    }
+    if (!nav.said[nav.next + 'f'] && d < T.far && d > T.near * 2) { nav.said[nav.next + 'f'] = true; speak(`In ${sayDist(d)}, ${st.pre}`); }
     if (!nav.said[nav.next + 'n'] && d < T.near) {
       nav.said[nav.next + 'n'] = true;
       const after = nav.steps[nav.next + 1];
-      speak(after && after.type !== 'arrive' && st.loc.distanceTo(after.loc) < 150 ? `${st.text}, then ${after.pre}` : st.text);
+      speak(after && after.type !== 'arrive' && dist(st.loc, after.loc) < 150 ? `${st.text}, then ${after.pre}` : st.text);
     }
-
-    // Off route? Re-route.
-    const off = distToRoute(me);
+    const off = nearestOnRoute(me).d;
     nav.off = (off > (S.mode === 'car' ? 50 : 35) && meAcc < 60) ? nav.off + 1 : 0;
     if (nav.off >= 3 && Date.now() - nav.lastReroute > 15000) reroute();
     renderNav(d);
@@ -712,50 +1080,51 @@
   async function reroute() {
     if (!nav || !routeDest) return;
     nav.rerouting = true; nav.lastReroute = Date.now();
-    speak('Rerouting');
-    $('navText').textContent = 'Rerouting…';
+    speak('Rerouting.'); $('navText').textContent = 'Rerouting…';
     try {
-      const rt = await fetchRoute(me, routeDest.ll);
+      const rt = (await fetchRoutes(me, [routeDest.lng, routeDest.lat], false))[0];
       if (!nav) return;
-      currentRoute = rt; drawRoute(rt);
-      Object.assign(nav, { steps: buildSteps(rt), next: 1, minD: Infinity, said: {}, coords: rt.geometry.coordinates, off: 0 });
+      routes = [rt]; selRoute = 0; drawRoutes();
+      Object.assign(nav, { steps: buildSteps(rt), minD: Infinity, said: {}, coords: rt.geometry.coordinates, off: 0 });
       nav.next = Math.min(1, nav.steps.length - 1);
-      const st = nav.steps[nav.next], d = me.distanceTo(st.loc);
-      setTimeout(() => speak(`In ${fmtDist(d, true)}, ${st.pre}`), 1200);
-      if (d < thresholds().far * 1.5) nav.said[nav.next + 'f'] = true;
-    } catch { toast('Could not reroute'); }
+      const st = nav.steps[nav.next], d = dist(me, st.loc);
+      setTimeout(() => speak(`In ${sayDist(d)}, ${st.pre}`), 1200);
+      if (d < TH().far * 1.5) nav.said[nav.next + 'f'] = true;
+    } catch { toast('Couldn’t find a new route.'); }
     if (nav) { nav.rerouting = false; renderNav(); }
   }
   function renderNav(d) {
     if (!nav) return;
     const st = nav.steps[nav.next], after = nav.steps[nav.next + 1];
-    if (d === undefined) d = me ? me.distanceTo(st.loc) : st.dist;
+    if (d === undefined) d = me ? dist(me, st.loc) : st.dist;
     $('navArrow').innerHTML = arrowFor(st);
-    $('navDist').textContent = fmtDist(d);
-    $('navText').textContent = st.text;
-    $('navThen').textContent = after ? `Then: ${after.text}` : '';
+    $('navDist').textContent = st.type === 'arrive' && d < 60 ? 'Now' : fmtDist(d);
+    // Like Apple Maps: show the street you're turning onto, or the full instruction if there's no street name
+    $('navText').textContent = st.type === 'arrive' ? 'Arrive at destination' : (/ onto /.test(st.text) ? st.text.split(' onto ').pop() : st.text);
+    const showThen = after && dist(st.loc, after.loc) < 300;
+    $('navThen').hidden = !showThen;
+    if (showThen) { $('navThen').textContent = 'Then: ' + after.text; document.documentElement.style.setProperty('--bannerH', $('navBanner').offsetHeight + 'px'); }
     let remain = d, secs = 0;
     const cur = nav.steps[nav.next - 1];
     if (cur && cur.dist > 0) secs += cur.dur * Math.min(1, d / cur.dist);
     for (let i = nav.next; i < nav.steps.length; i++) { remain += nav.steps[i].dist; secs += nav.steps[i].dur; }
-    const eta = new Date(Date.now() + secs * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-    $('navEta').textContent = `${fmtTime(secs)} · ${fmtDist(remain)}`;
-    $('navRemain').textContent = `Arrive ${eta}`;
+    $('navArrive').textContent = clock(secs);
+    const h = Math.floor(secs / 3600), m = Math.round((secs % 3600) / 60);
+    $('navMin').textContent = h ? `${h}:${String(m).padStart(2, '0')}` : String(Math.max(1, m));
+    $('navMinL').textContent = h ? 'hrs' : 'min';
+    const dp = distParts(remain);
+    $('navDistLeft').textContent = dp[0]; $('navDistL').textContent = dp[1];
   }
-
-  // Keep the screen on while navigating
   async function requestWake() { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {} }
   function releaseWake() { try { wakeLock?.release(); } catch {} wakeLock = null; }
   document.addEventListener('visibilitychange', () => { if (nav && document.visibilityState === 'visible') requestWake(); });
 
-  // ================= Start up =================
-  applyLook();
-  setStyle(S.style);
-  drawFavs();
+  // ================= Start =================
+  applyUI();
+  showPanel('home', 'peek');
+  renderHome();
+  initMap();
   loadVoices();
-  if (navigator.permissions) {
-    navigator.permissions.query({ name: 'geolocation' }).then(p => { if (p.state === 'granted') startLocating(!store.get('view', null)); }).catch(() => {});
-  }
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>
