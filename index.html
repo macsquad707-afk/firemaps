@@ -6,7 +6,7 @@
 <title>Fire Maps</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Fire Maps">
 <meta name="theme-color" content="#f3f1ec">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -229,7 +229,6 @@
 </head>
 <body class="glass">
 <div id="map"></div>
-<div id="scrim"></div>
 <div id="splash"><img src="apple-touch-icon.png" alt=""><div class="name">Fire Maps</div><div class="msg" id="splashMsg"></div></div>
 
 <div id="controls">
@@ -446,7 +445,7 @@
 
   // ================= Map look (Apple-like colors) =================
   const LIGHT = { land: '#f3f1ec', res: '#efece6', park: '#cdeac0', wood: '#c1e3b2', grass: '#d5edc9', other: null, water: '#a3d4f7', waterLabel: '#3f7fb5',
-    bld: '#e5e1db', bld3d: '#ebe8e3', road: '#ffffff', roadCase: '#dcd8d1', prim: '#fff4c4', primCase: '#e6cd85', mot: '#fbd06c', motCase: '#dea63a',
+    bld: '#e6e2dc', bld3d: '#eeebe6', road: '#ffffff', roadCase: '#dcd8d1', prim: '#fff4c4', primCase: '#e6cd85', mot: '#fbd06c', motCase: '#dea63a',
     path: '#d9d4cc', rail: '#c9c5be', boundary: '#b6b0c4', label: '#3a3a3c', halo: '#ffffff', roadLabel: '#5a5a5f', aero: '#e7e4ee', poi: null };
   const DARK = { land: '#25272b', res: '#2a2c31', park: '#1e3427', wood: '#1c3225', grass: '#21372a', other: '#2a2c31', water: '#14273c', waterLabel: '#7aa6cf',
     bld: '#33363b', bld3d: '#3b3e44', road: '#46494f', roadCase: '#2c2e33', prim: '#5a5749', primCase: '#3b392f', mot: '#93773f', motCase: '#5f4c27',
@@ -473,7 +472,7 @@
       else if (id === 'landcover_grass') p[k] = T.grass;
       else if (id === 'landuse_residential') p[k] = T.res;
       else if (id === 'building') p[k] = T.bld;
-      else if (id === 'building-3d') { p[k] = T.bld3d; p['fill-extrusion-opacity'] = .6; }
+      else if (id === 'building-3d') { p[k] = T.bld3d; p['fill-extrusion-opacity'] = .8; p['fill-extrusion-vertical-gradient'] = false; }
       else if (id === 'aeroway_fill') p[k] = T.aero;
       else if (T.other && !/pattern/.test(id)) p[k] = T.other;
     } else if (l.type === 'line') {
@@ -516,6 +515,8 @@
       const tf = l.layout['text-font'];
       if (Array.isArray(tf) && tf.every(f => typeof f === 'string')) l.layout['text-font'] = tf.map(f => f.replace('Italic', 'Regular'));
     });
+    // Soft, even lighting so building walls stay light instead of showing as dark patches
+    style.light = { anchor: 'viewport', color: '#ffffff', intensity: 0.12, position: [1.15, 210, 30] };
     style.sources.esri = { type: 'raster', tileSize: 128, maxzoom: 19, attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
       tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'] };
     const sat = { id: 'sat', type: 'raster', source: 'esri', layout: { visibility: S.style === 'standard' ? 'none' : 'visible' }, paint: { 'raster-fade-duration': 0, 'raster-resampling': 'linear' } };
