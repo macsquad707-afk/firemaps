@@ -532,7 +532,8 @@
     style.sources.esri = { type: 'raster', tileSize: (window.devicePixelRatio || 1) > 2.2 ? 64 : 128, maxzoom: 19, // one image pixel per screen pixel, so photos aren't stretched attribution: 'Imagery © Esri, Maxar, Earthstar Geographics',
       tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'] };
     const satVis = S.style === 'standard' ? 'none' : 'visible';
-    const sat = { id: 'sat', type: 'raster', source: 'esri', layout: { visibility: satVis }, paint: { 'raster-fade-duration': 0, 'raster-resampling': 'linear' } };
+    const sat = { id: 'sat', type: 'raster', source: 'esri', layout: { visibility: satVis },
+      paint: { 'raster-fade-duration': 0, 'raster-resampling': 'linear', 'raster-contrast': 0.12, 'raster-saturation': 0.15, 'raster-brightness-min': 0.02 } }; // a little more punch, like Apple's imagery
     style.layers.splice(1, 0, sat);
     return style;
   }
@@ -594,11 +595,11 @@
     if (!map || nav || document.hidden) return;
     map.once('render', () => {
       try {
-        const cv = map.getCanvas(), k = Math.min(window.devicePixelRatio || 1, 2), w = Math.round(cv.clientWidth * k), h = Math.round(cv.clientHeight * k);
+        const cv = map.getCanvas(), k = window.devicePixelRatio || 1, w = Math.round(cv.clientWidth * k), h = Math.round(cv.clientHeight * k);
         if (!w || !h) return;
         const t = document.createElement('canvas'); t.width = w; t.height = h;
         t.getContext('2d').drawImage(cv, 0, 0, w, h);
-        localStorage.setItem('snap2', t.toDataURL('image/jpeg', 0.8));
+        localStorage.setItem('snap2', t.toDataURL('image/jpeg', 0.85));
       } catch {}
     });
     map.triggerRepaint();
@@ -764,8 +765,25 @@
     const addr = [p.housenumber && p.street ? `${p.housenumber} ${p.street}` : p.street, p.city || p.locality || p.district, p.state, p.country].filter(Boolean);
     const name = p.name || (p.housenumber && p.street ? `${p.housenumber} ${p.street}` : p.street) || p.city || 'Place';
     const cat = prettyCat(p.osm_value);
-    return { name, lng, lat, key: p.osm_key, value: p.osm_value, cat, address: addr.filter(a => a !== name).join(', '),
+    return { _f: p, name, lng, lat, key: p.osm_key, value: p.osm_value, cat, address: addr.filter(a => a !== name).join(', '),
       sub: [cat, p.city || p.state || p.country].filter(Boolean).filter(x => x !== name).join(' · '), extent: p.extent };
+  }
+  // Street addresses start with a house number, like "350 5th Ave"
+  const looksLikeAddress = q => /^\s*\d+[a-z]?(-\d+)?\s+\S/i.test(q);
+  function nominatimToPlace(x) {
+    const a = x.address || {}, lat = +x.lat, lng = +x.lon;
+    const street = [a.house_number, a.road || a.pedestrian || a.footway].filter(Boolean).join(' ');
+    const city = a.city || a.town || a.village || a.hamlet || a.suburb || a.county;
+    const name = street || x.name || (x.display_name || '').split(',')[0];
+    const bb = x.boundingbox && x.boundingbox.map(Number);
+    return { name, lng, lat, key: 'place', value: 'house', cat: 'Address', address: [city, a.state, a.postcode].filter(Boolean).join(', '),
+      sub: ['Address', city].filter(Boolean).join(' · '), extent: bb && bb[0] !== bb[1] ? [bb[2], bb[1], bb[3], bb[0]] : null };
+  }
+  async function searchAddresses(q) {
+    const b = map.getBounds();
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&q=${encodeURIComponent(q)}` +
+      `&viewbox=${b.getWest()},${b.getNorth()},${b.getEast()},${b.getSouth()}&bounded=0&accept-language=${encodeURIComponent(navigator.language || 'en')}`;
+    try { return (await (await fetch(url)).json()).map(nominatimToPlace); } catch { return []; }
   }
   async function search(q) {
     const seq = ++searchSeq;
@@ -773,11 +791,19 @@
     const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=10&lat=${c.lat.toFixed(4)}&lon=${c.lng.toFixed(4)}&zoom=${Math.round(Math.max(4, map.getZoom()))}&location_bias_scale=0.3`;
     const box = $('q').closest('.search');
     box.classList.add('busy');
+    const isAddr = looksLikeAddress(q);
     try {
-      const d = await (await fetch(url)).json();
+      const [d, addrs] = await Promise.all([fetch(url).then(r => r.json()).catch(() => ({ features: [] })), isAddr ? searchAddresses(q) : []]);
       if (seq !== searchSeq) return;
       box.classList.remove('busy');
-      results = d.features.map(photonToPlace);
+      let places = d.features.map(photonToPlace);
+      if (isAddr) {
+        // For an address search, show the address as the title (e.g. "350 5th Avenue"), with the building name underneath
+        places = places.map(p => { const f = p._f; if (f && f.housenumber && f.street) { const n = `${f.housenumber} ${f.street}`; if (n !== p.name) { const was = p.name; p.address = [was, ...String(p.address || '').split(', ').filter(x => x && x !== n)].join(', '); p.name = n; p.cat = was; } } return p; });
+        const extra = addrs.filter(a => !places.some(p => dist([p.lng, p.lat], [a.lng, a.lat]) < 40 && p.name === a.name));
+        places = [...extra, ...places];
+      }
+      results = places.slice(0, 12);
       const body = $('homeBody');
       if (!results.length) { body.innerHTML = '<p class="muted" style="text-align:center;margin-top:30px">No results</p>'; return; }
       body.innerHTML = '<div class="group" style="margin-top:4px">' + results.map((r, i) => { const k = category(r.key, r.value); return `<div class="item" data-res="${i}"><div class="ico" style="background:${k.c}">${svg(k.g)}</div><div class="txt"><b>${esc(r.name)}</b><small>${esc([distFromHere(r), r.cat, r.address].filter(Boolean).join(' · '))}</small></div></div>`; }).join('') + '</div>';
@@ -790,7 +816,7 @@
     $('qClear').hidden = !q;
     clearTimeout(searchTimer);
     if (q.length < 2) { searchSeq++; $('q').closest('.search').classList.remove('busy'); renderHome(); return; }
-    searchTimer = setTimeout(() => search(q), 300);
+    searchTimer = setTimeout(() => search(q), looksLikeAddress(q) ? 650 : 300); // address lookups wait for a pause in typing
   });
   $('q').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); clearTimeout(searchTimer); const q = $('q').value.trim(); if (q.length >= 2) search(q); $('q').blur(); } });
   $('qClear').onclick = e => { e.preventDefault(); $('q').value = ''; $('qClear').hidden = true; renderHome(); $('q').focus(); };
